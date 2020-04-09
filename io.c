@@ -61,8 +61,5 @@ void write_ising_grids(int L, int ngrids, int *ising_grids, int isweep){
 
     // close file
     fclose(ptr);
-
-    exit(EXIT_SUCCESS);
-    
-
+  
 }
