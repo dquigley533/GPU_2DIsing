@@ -22,7 +22,7 @@ void write_ising_grids(int L, int ngrids, int *ising_grids, int isweep){
     fwrite(&L,sizeof(int),1,ptr);
     fwrite(&ngrids,sizeof(int),1,ptr);
     fwrite(&isweep,sizeof(int),1,ptr);
-    
+
     // pack everything into as few bits as possible
     int nbytes = L*L*ngrids/8;
     if ( (L*L*ngrids)%8 !=0 ) { nbytes++; }
@@ -38,15 +38,16 @@ void write_ising_grids(int L, int ngrids, int *ising_grids, int isweep){
     uint8_t one = 1;
 
     int ibit=0, ibyte=0, iint;
-    for (iint=0;iint<L*L*ngrids;iint++){ //loop over integers
+    for (iint=0;iint<L*L*ngrids;iint++){ //loop over grid x squares per grid
 
         if ( ising_grids[iint] == 1 ) {
             bitgrids[ibyte] |= one << ibit;
+            printf("Set bit %d of byte %d\n", ibit, ibyte);
         }
 
         ibit++;
-        if (ibit==7) {
-            ibit==0;
+        if (ibit==8) {
+            ibit=0;
             ibyte++;
         }
 
@@ -61,7 +62,7 @@ void write_ising_grids(int L, int ngrids, int *ising_grids, int isweep){
     // close file
     fclose(ptr);
 
-
+    exit(EXIT_SUCCESS);
     
 
 }
