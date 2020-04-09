@@ -7,9 +7,11 @@ import pygame
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
 
+color_map = [BLACK, WHITE]
+
 igrid = 0       # Grid number to visualise
 if (len(sys.argv)>1):    # Read from command line if present
-    igrid = sys.argv[1]  
+    igrid = int(sys.argv[1])
 
 # Open file for binary reading
 gridfile = open("gridstates.dat", "rb")   
@@ -18,8 +20,9 @@ gridfile = open("gridstates.dat", "rb")
 try:
     L = np.fromfile(gridfile, dtype=np.int32, count=1)[0]
 except: # reached EOF
-    break; 
-
+    print("Could not read header from gridstates.dat") 
+    exit()
+    
 # Number of grids
 ngrids = np.fromfile(gridfile, dtype=np.int32, count=1)[0]
 
@@ -38,7 +41,7 @@ print("               ngrids = ",ngrids)
 print("        current sweep = ",isweep)
 
 # Array to hold state of lattice
-grid = [np.empty([L, L], dtype=np.int)]  
+grid = np.empty([L, L], dtype=np.int) 
 
 # Set display
 pygame.init()
@@ -51,6 +54,7 @@ pygame.display.flip()
 clock = pygame.time.Clock()
 
 # Loop until we break due to an error
+running = True
 while True:
 
     # Loop over grids
@@ -61,20 +65,20 @@ while True:
 
         # If this is the grid of interest then populate 
         if igrid==jgrid:
-            row = 0
-            col = 0
+            irow = 0
+            icol = 0
             for byte in gridbuffer:
                 bits = np.unpackbits(byte)
                 for bit in bits:
-                    grid[row, col] = bit
-                    col = col + 1
-                    if col==L:
-                        col = 0;
-                        row = row+1;
+                    grid[irow][icol] = bit
+                    icol = icol + 1
+                    if icol==L:
+                        icol = 0;
+                        irow = irow+1;
 
             for irow, row in enumerate(grid):
                 for icol, col in enumerate(row):
-                    pixel = model.lattice_state[irow][icol]
+                    pixel = grid[irow][icol]
                     pygame.draw.rect(screen, color_map[pixel],
                         [icol*block_size, irow*block_size, block_size, block_size])
 
