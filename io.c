@@ -22,7 +22,7 @@ void write_ising_grids(int L, int ngrids, int *ising_grids, int isweep){
     fwrite(&L,sizeof(int),1,ptr);
     fwrite(&ngrids,sizeof(int),1,ptr);
     fwrite(&isweep,sizeof(int),1,ptr);
-
+    
     // pack everything into as few bits as possible
     int nbytes = L*L*ngrids/8;
     if ( (L*L*ngrids)%8 !=0 ) { nbytes++; }

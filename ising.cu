@@ -12,6 +12,7 @@ for gathering rare event statistics on nucleation during magnetisation reversal.
 // TODO
 // 1. sweep counter probably needs to be a long and not an int
 // 2. free (and cudafree) memory allocated in main.
+// 3. set magnetisation output and grid output intervals to variables
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,7 +39,7 @@ int main (int argc, char *argv[]) {
    Defaults and constants 
   =================================*/ 
   
-  int L       = 64;   // Size of 2D Ising grid. LxL grid squares.
+  int L       = 4;    // Size of 2D Ising grid. LxL grid squares.
   int ngrids  = 1;    // Number of replicas of 2D grid to simulate
   int nsweeps = 100;  // Number of MC sweeps to simulate on each grid
 
@@ -135,6 +136,10 @@ int main (int argc, char *argv[]) {
 
     for (isweep=0;isweep<nsweeps;isweep++){
 
+      if (isweep%1000==0){
+        write_ising_grids(L, ngrids, ising_grids, isweep);  
+      }
+
       // MC Sweep - CPU
       for (igrid=0;igrid<ngrids;igrid++) {
         
@@ -146,9 +151,7 @@ int main (int argc, char *argv[]) {
         } 
 
       }
-      if (isweep%1000==0){
-        write_ising_grids(L, ngrids, ising_grids, isweep);  
-      }
+
     }
 
     t2 = clock();
