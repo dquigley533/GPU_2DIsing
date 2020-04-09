@@ -1,6 +1,5 @@
 #include "mc_cpu.h"
 
-
 // populate acceptance probabilities
 void preComputeProbs_cpu(double beta, double h) {
 
@@ -69,11 +68,27 @@ void mc_sweep_cpu(int L, int *ising_grids, int grid_index, double beta, double h
     double xi = genrand_real3();
     if (xi < Pacc[index] ) {
       // accept
+      //fprintf(stderr,"Accepted a move\n");
     } else {
       loc_grid[my_idx] = -1*loc_grid[my_idx]; // reject
     }
 
 
   } // end for
+
+}
+
+void compute_magnetisation_cpu(int L, int *ising_grids, int grid_index, double *magnetisation){
+
+  // Pointer to the current Ising grid
+  int *loc_grid = &ising_grids[grid_index*L*L];
+
+    float m = 0.0f;
+
+    int i;
+    for (i=0;i<L*L;i++) { m += loc_grid[i]; }
+    magnetisation[grid_index] = m/(float)(L*L);
+
+  return;
 
 }

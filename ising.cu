@@ -9,6 +9,10 @@ for gathering rare event statistics on nucleation during magnetisation reversal.
  ===========================================================================================*/
 // D. Quigley. Univeristy of Warwick
 
+// TODO
+// 1. sweep counter probably needs to be a long and not an int
+// 2. free (and cudafree) memory allocated in main.
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -19,13 +23,14 @@ for gathering rare event statistics on nucleation during magnetisation reversal.
 
 extern "C" {
   #include "mc_cpu.h"
+  #include "io.h"
 }
 
 #include "mc_gpu.h"
 #include "gpu_tools.h"
 
-const bool run_gpu = true;  // Run using GPU
-const bool run_cpu = true;  // Run using CPU
+const bool run_gpu = false;  // Run using GPU
+const bool run_cpu = true;   // Run using CPU
 
 int main (int argc, char *argv[]) {
 
@@ -38,7 +43,7 @@ int main (int argc, char *argv[]) {
   int nsweeps = 100;  // Number of MC sweeps to simulate on each grid
 
   double beta = 1.0/1.5;  // Inverse temperature
-  double h = 0.05;        // External field
+  double h = 0.0;         // External field
  
   unsigned long rngseed = 2894203475;  // RNG seed (fixed for development/testing)
   
@@ -62,6 +67,10 @@ int main (int argc, char *argv[]) {
   =================================*/ 
   // Host copy of Ising grid configurations
   int *ising_grids = (int *)malloc(L*L*ngrids*sizeof(int));
+  if (ising_grids==NULL){
+    fprintf(stderr,"Error allocating memory for Ising grids!\n");
+    exit(EXIT_FAILURE);
+  }
   
   // Initialise as spin down
   int i;
@@ -69,6 +78,9 @@ int main (int argc, char *argv[]) {
 
   // Initialise host RNG
   init_genrand(rngseed);
+
+  // Precompute acceptance probabilities for flip moves
+  preComputeProbs_cpu(beta, h);
 
   int *d_ising_grids;                    // Pointer to device grid configurations
   curandStatePhilox4_32_10_t *d_state;   // Pointer to device RNG states
@@ -96,15 +108,26 @@ int main (int argc, char *argv[]) {
   
     fprintf(stderr, "threadsPerBlock = %d, blocksPerGrid = %d\n",threadsPerBlock, blocksPerGrid);
 
+    // Precompute acceptance probabilities for flip moves
+    preComputeProbs_gpu(beta, h);
+
   }
 
 /*=================================
     Run simulations
   =================================*/ 
+
   clock_t t1,t2;  // For measuring time taken
   int isweep;     // MC sweep loop counter
 
   if (run_cpu==true) {
+
+    // Magnetisation of each grid
+    double *magnetisation = (double *)malloc(ngrids*sizeof(double));
+    if (magnetisation==NULL){
+      fprintf(stderr,"Error allocating magnetisation array!\n");
+      exit(EXIT_FAILURE);
+    }
 
     int igrid;   // counter for loop over replicas
 
@@ -114,9 +137,18 @@ int main (int argc, char *argv[]) {
 
       // MC Sweep - CPU
       for (igrid=0;igrid<ngrids;igrid++) {
+        
         mc_sweep_cpu(L,ising_grids,igrid,1.0/1.5,0.05);
+
+        if (isweep%100==0){
+          compute_magnetisation_cpu(L, ising_grids, igrid, magnetisation);
+          printf("Magnetisation of grid %d at sweep %d = %8.4f\n",igrid, isweep, magnetisation[igrid]);
+        } 
+
       }
-    
+      if (isweep%1000==0){
+        write_ising_grids(L, ngrids, ising_grids, isweep);  
+      }
     }
 
     t2 = clock();

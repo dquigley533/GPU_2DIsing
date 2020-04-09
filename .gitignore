@@ -1,1 +1,5 @@
 NOTES.txt
+*.o
+gridstates.dat
+.vscode
+*workspace

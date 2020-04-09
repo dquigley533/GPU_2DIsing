@@ -112,6 +112,30 @@ __global__ void mc_sweep_gpu(const int L, curandStatePhilox4_32_10_t *state, con
     //}
 
 
+
   }
+
+  return;
+
+}
+
+// compute magnetisation on the gpu
+__global__ void compute_magnetisation_gpu(const int L, const int ngrids, int *d_ising_grids, float *d_magnetisation) {
+
+  int idx = threadIdx.x+blockIdx.x*blockDim.x;
+
+  if (idx < ngrids) {
+
+    int *loc_grid = &d_ising_grids[idx*L*L]; // pointer to device global memory
+
+    float m = 0.0f;
+
+    int i;
+    for (i=0;i<L*L;i++) { m += loc_grid[i]; }
+    d_magnetisation[idx] = m/(float)(L*L);
+
+  }
+
+  return;
 
 }
