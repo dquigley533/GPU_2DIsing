@@ -43,20 +43,22 @@ void mc_sweep_cpu(int L, int *ising_grids, int grid_index, double beta, double h
 
     // find neighbours
     int my_idx = L*row+col;
-    int up_idx = L*(row+1)%L + col;
-    int dn_idx = L*(row+L-1)%L + col;
+    int up_idx = L*((row+L-1)%L) + col;  
+    int dn_idx = L*((row+1)%L)   + col;   
     int rt_idx = L*row + (col+1)%L;
     int lt_idx = L*row + (col+L-1)%L;
 
+    
     // energy before flip
     int n_sum = loc_grid[up_idx] + loc_grid[dn_idx] + loc_grid[lt_idx] + loc_grid[rt_idx]; 
+    //double energy_old = -1.0 * (double)loc_grid[my_idx] * ( (double)n_sum + h );
 
-    // flip
-    loc_grid[my_idx] = -1*loc_grid[my_idx];
+ 
 
     int index = 5*(loc_grid[my_idx]+1) + n_sum + 4;
 
-    //double energy_old = -1.0 * (double)loc_grid[my_idx] * ( (double)n_sum + h );
+    // flip
+    loc_grid[my_idx] = -1*loc_grid[my_idx];
 
     // energy after flip
     //n_sum = loc_grid[up_idx] + loc_grid[dn_idx] + loc_grid[lt_idx] + loc_grid[rt_idx]; 
@@ -66,6 +68,7 @@ void mc_sweep_cpu(int L, int *ising_grids, int grid_index, double beta, double h
     //double prob = exp(-beta*delta_energy);
 
     double xi = genrand_real3();
+    //if (xi < prob) {
     if (xi < Pacc[index] ) {
       // accept
       //fprintf(stderr,"Accepted a move\n");
@@ -83,11 +86,11 @@ void compute_magnetisation_cpu(int L, int *ising_grids, int grid_index, double *
   // Pointer to the current Ising grid
   int *loc_grid = &ising_grids[grid_index*L*L];
 
-    float m = 0.0f;
+    double m = 0.0f;
 
     int i;
-    for (i=0;i<L*L;i++) { m += loc_grid[i]; }
-    magnetisation[grid_index] = m/(float)(L*L);
+    for (i=0;i<L*L;i++) { m += (double)loc_grid[i]; }
+    magnetisation[grid_index] = m/(double)(L*L);
 
   return;
 

@@ -65,8 +65,8 @@ __global__ void mc_sweep_gpu(const int L, curandStatePhilox4_32_10_t *state, con
       n_sum = 0;
 
       my_idx = L*row+col;
-      n_sum += loc_grid[L*(row+1)%L + col];
-      n_sum += loc_grid[L*(row+L-1)%L + col];
+      n_sum += loc_grid[L*((row+1)%L) + col];
+      n_sum += loc_grid[L*((row+L-1)%L) + col];
       n_sum += loc_grid[L*row + (col+1)%L];
       n_sum += loc_grid[L*row + (col+L-1)%L];
 
