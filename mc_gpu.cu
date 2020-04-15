@@ -1,6 +1,6 @@
+// -*- mode: C -*-
+
 #include "mc_gpu.h"
-
-
 
 // populate acceptance probabilities
 void preComputeProbs_gpu(double beta, double h) {
