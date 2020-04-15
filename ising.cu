@@ -13,6 +13,7 @@ for gathering rare event statistics on nucleation during magnetisation reversal.
 // 1. sweep counter probably needs to be a long and not an int
 // 2. free (and cudafree) memory allocated in main.
 // 3. set magnetisation output and grid output intervals to variables
+// 4. delete/move any existing gridstates.dat
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,12 +40,12 @@ int main (int argc, char *argv[]) {
    Defaults and constants 
   =================================*/ 
   
-  int L       = 4;    // Size of 2D Ising grid. LxL grid squares.
+  int L       = 64;   // Size of 2D Ising grid. LxL grid squares.
   int ngrids  = 1;    // Number of replicas of 2D grid to simulate
   int nsweeps = 100;  // Number of MC sweeps to simulate on each grid
 
   double beta = 1.0/1.5;  // Inverse temperature
-  double h = 0.0;         // External field
+  double h = 0.05;        // External field
  
   unsigned long rngseed = 2894203475;  // RNG seed (fixed for development/testing)
   
