@@ -42,7 +42,7 @@ void write_ising_grids(int L, int ngrids, int *ising_grids, int isweep){
 
         if ( ising_grids[iint] == 1 ) {
             bitgrids[ibyte] |= one << ibit;
-            printf("Set bit %d of byte %d\n", ibit, ibyte);
+            //printf("Set bit %d of byte %d\n", ibit, ibyte);
         }
 
         ibit++;
