@@ -32,7 +32,7 @@ isweep = np.fromfile(gridfile, dtype=np.int32, count=1)[0]
 
 # Sanity check
 if (igrid >= ngrids):
-    printf("Specified grid index is larger than number of grids in file!")
+    print("Specified grid index is larger than number of grids in file!")
     exit()
 
 # Report header
