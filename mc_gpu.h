@@ -14,6 +14,7 @@ void preComputeProbs_gpu(double beta, double h);
 
 // MC sweep on the GPU
 __global__ void mc_sweep_gpu(const int L, curandState *state, const int ngrids, int *d_ising_grids, const float beta, const float h);
+__global__ void mc_sweep_gpu_bitrep(const int L, curandState *state, const int ngrids, int *d_ising_grids, const float beta, const float h);
 
 // Compute magnetisation on the GPU
 __global__ void compute_magnetisation_gpu(const int L, const int ngrids, int *d_ising_grids, float *d_magnetisation);

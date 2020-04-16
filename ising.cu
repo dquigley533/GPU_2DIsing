@@ -227,7 +227,7 @@ int main (int argc, char *argv[]) {
       }
 
       // MC Sweep - GPU
-      mc_sweep_gpu<<<blocksPerGrid,threadsPerBlock>>>(L,d_state,ngrids,d_ising_grids,(float)beta,(float)h);
+      mc_sweep_gpu_bitrep<<<blocksPerGrid,threadsPerBlock>>>(L,d_state,ngrids,d_ising_grids,(float)beta,(float)h);
       gpuErrchk( cudaPeekAtLastError() );
       gpuErrchk( cudaDeviceSynchronize() );
 

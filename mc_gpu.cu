@@ -4,7 +4,9 @@
 
 #include <stdio.h>
 
+#define SHGRIDSIZE 512*16 // number of bytes to allocate per thread block for bit representation of grids
 
+__constant__ int blookup[2] = {-1,1};
 
 // populate acceptance probabilities
 void preComputeProbs_gpu(double beta, double h) {
@@ -31,7 +33,7 @@ void preComputeProbs_gpu(double beta, double h) {
 
   }  
 
-// sweep on the gpu
+// sweep on the gpu - default version
 __global__ void mc_sweep_gpu(const int L, curandState *state, const int ngrids, int *d_ising_grids, const float beta, const float h) {
 
   int idx = threadIdx.x+blockIdx.x*blockDim.x;
@@ -39,43 +41,24 @@ __global__ void mc_sweep_gpu(const int L, curandState *state, const int ngrids, 
   if (idx < ngrids) {
 
     // local copy of RNG state for current threads 
-    //curandStatePhilox4_32_10_t localState = state[idx];
     curandState localState = state[idx];
 
     // Pointer to local grid
-    int *loc_grid = &d_ising_grids[idx*L*L]; // pointer to device global memory
-
-    //const int shsize = L*L*blockDim.x;
-    //__shared__ int block_grid[64*64]; // HACK FOR TESTING SHARED MEMORY SPEED (One thread per block only).
-    
-    //int *loc_grid = &block_grid[L*L*threadIdx.x];
-    //int k;
-    //for (k=0;k<L*L;k++) {
-    //  loc_grid[k] = d_ising_grids[idx*L*L+k];
-    //}
-
-   
+    int *loc_grid = &d_ising_grids[idx*L*L]; // pointer to device global memory 
 
     float shrink = 1.0f - FLT_EPSILON;
 
     int imove, row, col, my_idx, n_sum, index, spin;
-
-    //float4 rnd;
-    //rnd = curand_uniform4(&localState);
-
-
     for (imove=0;imove<L*L;imove++){
-
-      // 4 random numbers 
-      //rnd = curand_uniform4(&localState); 
-
 
       row = int((float)L*shrink*curand_uniform(&localState));  // CAN generate L without shrink
       col = int((float)L*shrink*curand_uniform(&localState)); 
-      
-      //col = imove/L;
-      //row = imove%L;
       my_idx = L*row+col;
+
+      //my_idx = int((float)L*L*shrink*curand_uniform(&localState));
+      //row = my_idx/L;
+      //col = my_idx%L;
+
 
       spin = loc_grid[my_idx];
       
@@ -90,9 +73,7 @@ __global__ void mc_sweep_gpu(const int L, curandState *state, const int ngrids, 
       index = 5*(spin+1) + n_sum + 4;
 
       // flip
-      //spin = 0;//spin*-1;
       spin = -1*spin;
-
 
       if (curand_uniform(&localState) < d_Pacc[index] ) {
           // accept
@@ -106,11 +87,112 @@ __global__ void mc_sweep_gpu(const int L, curandState *state, const int ngrids, 
     // Copy local data back to device global memory
     state[idx] = localState;
 
-    //for (k=0;k<L*L;k++) {
-    //  d_ising_grids[idx*L*L+k] = loc_grid[k];
-    //}
+  }
+
+  return;
+
+}
+
+inline __device__ int bits_to_ints(unsigned int* grid, int L, int row, int col){
+  // L must be the number of entries in each row here. Important if ever adapting to non-square grids.
+
+  int ibyte = (row*L+col)/8;
+  int ibit  = (row*L+col)%8;
+  return blookup[(grid[ibyte] >> ibit) & 1U]; 
+
+}
+
+// sweep on the gpu - packs a cache of the current grid into on-GPU shared memory
+// for efficiency, and using a single bit represenation to acheive this. Mustn't
+// be used if L*L*threadsPerBlock/8 > SHGRIDSIZE. 
+__global__ void mc_sweep_gpu_bitrep(const int L, curandState *state, const int ngrids, int *d_ising_grids, const float beta, const float h) {
+
+  int idx = threadIdx.x+blockIdx.x*blockDim.x;
+
+  if (idx < ngrids) {
+
+    // local copy of RNG state for current threads 
+    curandState localState = state[idx];
+
+    // how many bytes do we need per thread to store L*L spins as single bytes
+    int nbytes = L*L/8;
+    if ( (L*L)%8 !=0 ) { nbytes ++; }
+
+    // If nbytes x threadsPerBlock is > SHGRIDSIZE we've got a problem....
+
+    // Shared memory for storage of bits
+    __shared__ unsigned int shared_grid[SHGRIDSIZE]; 
+
+    // Pointer to part of this storage used by the current thread
+    unsigned int *loc_grid = &shared_grid[nbytes*threadIdx.x];
+
+    uint8_t one  = 1;
+    uint8_t zero = 0;
+
+    // zero out
+    int ibyte;
+    for (ibyte=0;ibyte<nbytes;ibyte++){ loc_grid[ibyte] = zero ; }
+
+    // Fill this with the current state of the grid to be manipulated by this thread
+    int ibit=0, spin;
+    ibyte = 0;
+    for (spin=0;spin<L*L;spin++){ 
+        if ( d_ising_grids[L*L*idx + spin] == 1 ) {
+          loc_grid[ibyte] |= one << ibit ;
+        }
+        ibit++;
+        if (ibit==8) {
+            ibit=0;
+            ibyte++;
+        }
+    }
+     
+
+    float shrink = 1.0f - FLT_EPSILON;
+
+    int imove, row, col, n_sum, index;
+
+    for (imove=0;imove<L*L;imove++){
+
+      row = int((float)L*shrink*curand_uniform(&localState));  // CAN generate L without shrink
+      col = int((float)L*shrink*curand_uniform(&localState)); 
+      //index = L*row+col;
+
+      //index = int((float)L*L*shrink*curand_uniform(&localState));
+      //row = index/L;
+      //col = index%L;
+      
+      spin = bits_to_ints(loc_grid, L, row, col);
+      
+      // find neighbours
+      n_sum = 0;
+      n_sum += bits_to_ints(loc_grid, L, (row+1)%L, col); 
+      n_sum += bits_to_ints(loc_grid, L, (row+L-1)%L, col);
+      n_sum += bits_to_ints(loc_grid, L, row, (col+1)%L);
+      n_sum += bits_to_ints(loc_grid, L, row, (col+L-1)%L); 
+
+      //n_sum = 4;
+      index = 5*(spin+1) + n_sum + 4;
+
+      if (curand_uniform(&localState) < d_Pacc[index] ) {
+          // accept - toggle bit
+          ibyte = (row*L+col)/8;
+          index = (row*L+col)%8; 
+          loc_grid[ibyte] ^= 1U << index;
+      } 
+      
+      
+    } //end for
 
 
+    // Copy local data back to device global memory
+    state[idx] = localState;
+
+    for (row=0;row<L;row++){
+      for (col=0;col<L;col++){
+        d_ising_grids[L*L*idx + L*row + col] = bits_to_ints(loc_grid, L, row, col);
+      }
+    }
 
   }
 
