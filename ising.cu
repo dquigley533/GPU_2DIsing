@@ -50,20 +50,22 @@ int main (int argc, char *argv[]) {
  
   unsigned long rngseed = 2894203475;  // RNG seed (fixed for development/testing)
   
-  int threadsPerBlock = 1;  // Number of threads/replicas to run in each threadBlock
-  int blocksPerGrid   = 1;  // Total number of threadBlocks
+  int threadsPerBlock = BLOCKSIZE;  // Number of threads/replicas to run in each threadBlock
+  int blocksPerGrid   = 1;          // Total number of threadBlocks
+
+  int gpudevice = -1;               // GPU device to use
 
 /*=================================
    Process command line arguments 
   =================================*/ 
   if (argc != 4) {
-    printf("Usage : ./ising2D nsweeps nreplicas GPUthreadsPerBlock\n");
+    printf("Usage : ./ising2D nsweeps nreplicas gpudevice \n");
     exit(EXIT_FAILURE);
   }
 
-  nsweeps = atoi(argv[1]);         // Number of MC sweeps to simulate
-  ngrids  = atoi(argv[2]);         // Number of replicas (grids) to simulate
-  threadsPerBlock = atoi(argv[3]); // Number of threads per GPU threadblock
+  nsweeps   = atoi(argv[1]);         // Number of MC sweeps to simulate
+  ngrids    = atoi(argv[2]);         // Number of replicas (grids) to simulate
+  gpudevice = atoi(argv[3]);         // Number of threads per GPU threadblock
   
 
 /*=================================
@@ -97,7 +99,7 @@ int main (int argc, char *argv[]) {
 
   if (run_gpu==true) {
     
-    gpuInit(); // Initialise GPU device(s)
+    gpuInit(gpudevice); // Initialise GPU device(s)
 
     // Allocate threads to thread blocks
     blocksPerGrid = ngrids/threadsPerBlock;
@@ -184,7 +186,7 @@ int main (int argc, char *argv[]) {
       if (isweep%100==0){
         for (igrid=0;igrid<ngrids;igrid++){
           compute_magnetisation_cpu(L, ising_grids, igrid, magnetisation);
-          printf("Magnetisation of grid %d at sweep %d = %8.4f\n",igrid, isweep, magnetisation[igrid]);
+          //printf("Magnetisation of grid %d at sweep %d = %8.4f\n",igrid, isweep, magnetisation[igrid]);
         }
       } 
 
@@ -227,7 +229,7 @@ int main (int argc, char *argv[]) {
       }
 
       // MC Sweep - GPU
-      mc_sweep_gpu_bitrep<<<blocksPerGrid,threadsPerBlock>>>(L,d_state,ngrids,d_ising_grids,(float)beta,(float)h);
+      mc_sweep_gpu_bitmap<<<blocksPerGrid,threadsPerBlock>>>(L,d_state,ngrids,d_ising_grids,(float)beta,(float)h);
       gpuErrchk( cudaPeekAtLastError() );
       gpuErrchk( cudaDeviceSynchronize() );
 
@@ -236,9 +238,9 @@ int main (int argc, char *argv[]) {
         gpuErrchk( cudaPeekAtLastError() );
         gpuErrchk( cudaDeviceSynchronize() );
         gpuErrchk( cudaMemcpy(magnetisation,d_magnetisation,ngrids*sizeof(float),cudaMemcpyDeviceToHost) );
-        for (igrid=0;igrid<ngrids;igrid++){
-          printf("Magnetisation of grid %d at sweep %d = %8.4f\n",igrid, isweep, magnetisation[igrid]);
-        }
+        //for (igrid=0;igrid<ngrids;igrid++){
+        //  printf("Magnetisation of grid %d at sweep %d = %8.4f\n",igrid, isweep, magnetisation[igrid]);
+        //}
       } 
 
     }
