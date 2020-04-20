@@ -95,7 +95,8 @@ int main (int argc, char *argv[]) {
   preComputeProbs_cpu(beta, h);
 
   int *d_ising_grids;                    // Pointer to device grid configurations
-  curandState *d_state;   // Pointer to device RNG states
+  curandState *d_state;                  // Pointer to device RNG states
+  int **d_neighbour_list;                // Pointer to device neighbour lists
 
   if (run_gpu==true) {
     
@@ -122,6 +123,10 @@ int main (int argc, char *argv[]) {
 
     // Precompute acceptance probabilities for flip moves
     preComputeProbs_gpu(beta, h);
+
+    // Neighbours
+    gpuErrchk (cudaMalloc((void ***)&d_neighbour_list, L*L*4*sizeof(int *)) );
+    preComputeNeighbours_gpu(L, d_ising_grids, d_neighbour_list);
 
     // Test RNG (DEBUG)
     /*
@@ -229,7 +234,7 @@ int main (int argc, char *argv[]) {
       }
 
       // MC Sweep - GPU
-      mc_sweep_gpu<<<blocksPerGrid,threadsPerBlock>>>(L,d_state,ngrids,d_ising_grids,(float)beta,(float)h);
+      mc_sweep_gpu<<<blocksPerGrid,threadsPerBlock>>>(L,d_state,ngrids,d_ising_grids,d_neighbour_list,(float)beta,(float)h);
       gpuErrchk( cudaPeekAtLastError() );
       gpuErrchk( cudaDeviceSynchronize() );
 
@@ -263,6 +268,7 @@ int main (int argc, char *argv[]) {
   if (run_gpu==true) {
     gpuErrchk( cudaFree(d_ising_grids) );
     gpuErrchk( cudaFree(d_state) );
+    gpuErrchk( cudaFree(d_neighbour_list) );
   }
 
   return EXIT_SUCCESS;

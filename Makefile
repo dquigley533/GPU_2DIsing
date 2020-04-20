@@ -12,7 +12,9 @@ CC    = gcc
 NVCC  = nvcc
 LD     = nvcc
 CFLAGS =  -O3 -g 
-NVFLAGS = -O3 --gpu-architecture sm_75  --generate-line-info
+NVFLAGS = -O3 -gencode arch=compute_35,code=sm_35 \
+	          -gencode arch=compute_75,code=sm_75 \
+			  -gencode arch=compute_60,code=sm_60 --generate-line-info
 
 .PRECIOUS: %.o
 .PHONY:  clean

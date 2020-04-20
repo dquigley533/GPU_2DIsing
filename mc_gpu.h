@@ -12,8 +12,12 @@ __constant__ float d_Pacc[20];   // gpu constant memory
 // pre-compute acceptance probabilities for spin flips
 void preComputeProbs_gpu(double beta, double h);
 
+// pre-compute neighbours
+void preComputeNeighbours_gpu(const int L, int *d_ising_grids, int **d_neighbour_list);
+
+
 // MC sweep on the GPU - 3 versions
-__global__ void mc_sweep_gpu(const int L, curandState *state, const int ngrids, int *d_ising_grids, const float beta, const float h);
+__global__ void mc_sweep_gpu(const int L, curandState *state, const int ngrids, int *d_ising_grids, int **d_neighbour_list, const float beta, const float h);
 __global__ void mc_sweep_gpu_bitrep(const int L, curandState *state, const int ngrids, int *d_ising_grids, const float beta, const float h);
 __global__ void mc_sweep_gpu_bitmap(const int L, curandState *state, const int ngrids, int *d_ising_grids, const float beta, const float h);
 
