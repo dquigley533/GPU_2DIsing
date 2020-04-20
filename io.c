@@ -4,7 +4,7 @@
 void write_ising_grids(int L, int ngrids, int *ising_grids, int isweep){
 
     // Set filename
-    char filename[14];
+    char filename[15];
     sprintf(filename, "gridstates.dat");
     //printf("%s\n",filename);
 
