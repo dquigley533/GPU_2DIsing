@@ -12,10 +12,12 @@ CC    = gcc
 NVCC  = nvcc
 LD     = nvcc
 CFLAGS =  -O3 -g 
-NVFLAGS = -O3 --gpu-architecture sm_35 -g
+NVFLAGS = -O3 --gpu-architecture sm_75  --generate-line-info
 
 .PRECIOUS: %.o
 .PHONY:  clean
+
+all : GPU_2DIsing
 
 %: %.o
 %.o: %.c

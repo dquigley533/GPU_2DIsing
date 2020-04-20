@@ -27,6 +27,9 @@ __global__ void compute_magnetisation_gpu(const int L, const int ngrids, int *d_
 // SHGRIDSIZEx8/(LxL) threads per block. Shared memory is a limited resource, so increasing this 
 // to hangle more threads per block or bigger grids will mean fewer thread blocks can run at once, which
 // might lead to underutilisation of SMs.
+
+// E.g. GTX 1660 Ti, has 32 threads per warp and enough shared memory per SM for each of SMs to hold
+// 32 64x64 grids.
 #define MAXL 64
-#define BLOCKSIZE 16
+#define BLOCKSIZE 48
 #define SHGRIDSIZE BLOCKSIZE*MAXL*MAXL/8  // Shared memory per block in *bytes for bitrep kernel

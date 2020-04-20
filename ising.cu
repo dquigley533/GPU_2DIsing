@@ -33,7 +33,7 @@ extern "C" {
 #include "gpu_tools.h"
 
 const bool run_gpu = true;     // Run using GPU
-const bool run_cpu = true;    // Run using CPU
+const bool run_cpu = false;    // Run using CPU
 
 int main (int argc, char *argv[]) {
 
@@ -229,7 +229,7 @@ int main (int argc, char *argv[]) {
       }
 
       // MC Sweep - GPU
-      mc_sweep_gpu_bitmap<<<blocksPerGrid,threadsPerBlock>>>(L,d_state,ngrids,d_ising_grids,(float)beta,(float)h);
+      mc_sweep_gpu<<<blocksPerGrid,threadsPerBlock>>>(L,d_state,ngrids,d_ising_grids,(float)beta,(float)h);
       gpuErrchk( cudaPeekAtLastError() );
       gpuErrchk( cudaDeviceSynchronize() );
 
