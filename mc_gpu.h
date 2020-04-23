@@ -9,31 +9,28 @@
 __constant__ float d_Pacc[20];   // gpu constant memory
 
 
+
+
 // pre-compute acceptance probabilities for spin flips
 void preComputeProbs_gpu(double beta, double h);
 
 // pre-compute neighbours
-void preComputeNeighbours_gpu(const int L, int *d_ising_grids, int **d_neighbour_list);
+void preComputeNeighbours_gpu(const int L, int *d_ising_grids, int *d_neighbour_list);
 
 
 // MC sweep on the GPU - 3 versions
-__global__ void mc_sweep_gpu(const int L, curandState *state, const int ngrids, int *d_ising_grids, int **d_neighbour_list, const float beta, const float h);
-__global__ void mc_sweep_gpu_bitrep(const int L, curandState *state, const int ngrids, int *d_ising_grids, const float beta, const float h);
-__global__ void mc_sweep_gpu_bitmap(const int L, curandState *state, const int ngrids, int *d_ising_grids, const float beta, const float h);
-
+__global__ void mc_sweep_gpu(const int L, curandState *state, const int ngrids, int *d_ising_grids, int *d_neighbour_list, const float beta, const float h, int nsweeps);
+__global__ void mc_sweep_gpu_bitrep(const int L, curandState *state, const int ngrids, int *d_ising_grids, int *d_neighbour_list, const float beta, const float h, int nsweeps);
+__global__ void mc_sweep_gpu_bitmap32(const int L, curandState *state, const int ngrids, int *d_ising_grids, int *d_neighbour_list, const float beta, const float h, int nsweeps);
+__global__ void mc_sweep_gpu_bitmap64(const int L, curandState *state, const int ngrids, int *d_ising_grids, int *d_neighbour_list, const float beta, const float h, int nsweeps);
 
 // Compute magnetisation on the GPU
 __global__ void compute_magnetisation_gpu(const int L, const int ngrids, int *d_ising_grids, float *d_magnetisation);
 
+// Neighbour list squeezed into constant memory. Use of uint16_t limts MAXL to be 
+// 128, or would need to move to 2D indexing.
+//__constant__ uint16_t dc_neighbour_list[MAXL*MAXL*4];
 
-// The size of any shared memory arrays needs to be known at compile time. If using shared memory as
-// a cache for the Ising grids managed by a thread block we use one bit per spin. Hence can only handle
-// SHGRIDSIZEx8/(LxL) threads per block. Shared memory is a limited resource, so increasing this 
-// to hangle more threads per block or bigger grids will mean fewer thread blocks can run at once, which
-// might lead to underutilisation of SMs.
-
-// E.g. GTX 1660 Ti, has 32 threads per warp and enough shared memory per SM for each of SMs to hold
-// 32 64x64 grids.
 #define MAXL 64
-#define BLOCKSIZE 48
-#define SHGRIDSIZE BLOCKSIZE*MAXL*MAXL/8  // Shared memory per block in *bytes for bitrep kernel
+__constant__ uint8_t dc_next[MAXL];
+__constant__ uint8_t dc_prev[MAXL];

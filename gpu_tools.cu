@@ -47,6 +47,12 @@ void gpuInit(int deviceIndex){
         // struct tell us the clock speed and compute capability
         // of the device.
         printf("Device %d : %s\n",idev,prop.name);
+        printf("================================\n");
+        printf("Number of SMs       : %d\n",prop.multiProcessorCount);
+        printf("Max SHMEM per block : %d\n",prop.sharedMemPerBlock);
+        printf("Warp size           : %d\n",prop.warpSize);
+        printf("Global DRAM         : %d\n",prop.totalGlobalMem);
+        printf("\n");
 
     }
 

@@ -11,10 +11,8 @@ for gathering rare event statistics on nucleation during magnetisation reversal.
 
 // TODO
 // 1. sweep counter probably needs to be a long and not an int
-// 2. set magnetisation output and grid output intervals to variables
-// 3. read input configuration from file
-// 4. clustering using nvgraph?
-
+// 2. read input configuration from file
+// 3. clustering using nvgraph?
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,38 +39,41 @@ int main (int argc, char *argv[]) {
    Constants and variables
   =================================*/ 
   
-  int L       = 64;   // Size of 2D Ising grid. LxL grid squares.
-  int ngrids  = 1;    // Number of replicas of 2D grid to simulate
-  int nsweeps = 100;  // Number of MC sweeps to simulate on each grid
+  int L       = 64;            // Size of 2D Ising grid. LxL grid squares.
+  int ngrids  = 1;             // Number of replicas of 2D grid to simulate
+  int tot_nsweeps = 100;       // Total number of MC sweeps to simulate on each grid
 
-  double beta = 1.0/1.5;  // Inverse temperature
-  double h = 0.05;        // External field
+  int mag_output_int  = 100;   // Number of MC sweeps between calculation of magnetisation
+  int grid_output_int = 1000;  // Number of MC sweeps between dumps of grid to file
+
+  double beta = 1.0/1.5;       // Inverse temperature
+  double h = 0.05;             // External field
  
   unsigned long rngseed = 2894203475;  // RNG seed (fixed for development/testing)
   
-  int threadsPerBlock = BLOCKSIZE;  // Number of threads/replicas to run in each threadBlock
-  int blocksPerGrid   = 1;          // Total number of threadBlocks
-
-  int gpudevice = -1;               // GPU device to use
+  int threadsPerBlock = 32;            // Number of threads/replicas to run in each threadBlock
+  int blocksPerGrid   = 1;             // Total number of threadBlocks
+  int gpu_device = -1;                 // GPU device to use
+  int gpu_method = 0;                  // Which MC sweep kernel to use
 
 /*=================================
    Process command line arguments 
   =================================*/ 
-  if (argc != 4) {
-    printf("Usage : ./ising2D nsweeps nreplicas gpudevice \n");
+  if (argc != 6) {
+    printf("Usage : ./ising2D nsweeps nreplicas threadsPerBlock gpu_device gpu_method \n");
     exit(EXIT_FAILURE);
   }
 
-  nsweeps   = atoi(argv[1]);         // Number of MC sweeps to simulate
-  ngrids    = atoi(argv[2]);         // Number of replicas (grids) to simulate
-  gpudevice = atoi(argv[3]);         // Number of threads per GPU threadblock
-  
+  tot_nsweeps     = atoi(argv[1]);  // Number of MC sweeps to simulate
+  ngrids          = atoi(argv[2]);  // Number of replicas (grids) to simulate
+  threadsPerBlock = atoi(argv[3]);  // Number of thread per block (multiple of 32)
+  gpu_device      = atoi(argv[4]);  // Which GPU device to use (normally 0) 
+  gpu_method      = atoi(argv[5]);  // Which kernel to use for MC sweeps
 
 /*=================================
    Delete old output 
   ================================*/
   remove("gridstates.dat");
-
 
 /*=================================
    Initialise simulations
@@ -84,9 +85,11 @@ int main (int argc, char *argv[]) {
     exit(EXIT_FAILURE);
   }
   
-  // Initialise as spin down
+  // Initialise as spin down 
   int i;
   for (i=0;i<L*L*ngrids;i++) { ising_grids[i] = -1; }
+
+  // TODO - replace with configuration read from file
 
   // Initialise host RNG
   init_genrand(rngseed);
@@ -96,11 +99,15 @@ int main (int argc, char *argv[]) {
 
   int *d_ising_grids;                    // Pointer to device grid configurations
   curandState *d_state;                  // Pointer to device RNG states
-  int **d_neighbour_list;                // Pointer to device neighbour lists
+  int *d_neighbour_list;                 // Pointer to device neighbour lists
+
+  // How many sweeps to run in each call
+  int sweeps_per_call;
+  sweeps_per_call = mag_output_int < grid_output_int ? mag_output_int : grid_output_int;
 
   if (run_gpu==true) {
     
-    gpuInit(gpudevice); // Initialise GPU device(s)
+    gpuInit(gpu_device); // Initialise GPU device(s)
 
     // Allocate threads to thread blocks
     blocksPerGrid = ngrids/threadsPerBlock;
@@ -125,10 +132,10 @@ int main (int argc, char *argv[]) {
     preComputeProbs_gpu(beta, h);
 
     // Neighbours
-    gpuErrchk (cudaMalloc((void ***)&d_neighbour_list, L*L*4*sizeof(int *)) );
+    gpuErrchk (cudaMalloc((void **)&d_neighbour_list, L*L*4*sizeof(int)) );
     preComputeNeighbours_gpu(L, d_ising_grids, d_neighbour_list);
 
-    // Test RNG (DEBUG)
+    // Test CUDA RNG (DEBUG)
     /*
     float   *testrnd = (float *)malloc(ngrids*sizeof(float));
     float *d_testrnd;
@@ -173,32 +180,33 @@ int main (int argc, char *argv[]) {
       exit(EXIT_FAILURE);
     }
 
-    t1 = clock();
+    t1 = clock();  // Start timer
 
-    for (isweep=0;isweep<nsweeps;isweep++){
+    isweep = 0;
+    while (isweep < tot_nsweeps){
 
       // Output grids to file
-      if (isweep%1000==0){
+      if (isweep%grid_output_int==0){
         write_ising_grids(L, ngrids, ising_grids, isweep);  
       }
 
-      // MC Sweep - CPU
-      for (igrid=0;igrid<ngrids;igrid++) {
-        mc_sweep_cpu(L, ising_grids, igrid, beta, h);
-      }
-
       // Report magnetisations
-      if (isweep%100==0){
+      if (isweep%mag_output_int==0){
         for (igrid=0;igrid<ngrids;igrid++){
           compute_magnetisation_cpu(L, ising_grids, igrid, magnetisation);
           //printf("Magnetisation of grid %d at sweep %d = %8.4f\n",igrid, isweep, magnetisation[igrid]);
         }
       } 
 
+      // MC Sweep - CPU
+      for (igrid=0;igrid<ngrids;igrid++) {
+        mc_sweep_cpu(L, ising_grids, igrid, beta, h, sweeps_per_call);
+      }
+      isweep += sweeps_per_call;
 
     }
 
-    t2 = clock();
+    t2 = clock();  // Stop Timer
 
     printf("Time taken on CPU = %f seconds\n",(double)(t2-t1)/(double)CLOCKS_PER_SEC);
 
@@ -223,36 +231,88 @@ int main (int argc, char *argv[]) {
     float *d_magnetisation;
     gpuErrchk( cudaMalloc(&d_magnetisation,ngrids*sizeof(float)) );
 
-    t1 = clock();
+    // Streams
+    cudaStream_t stream1;
+    gpuErrchk( cudaStreamCreate(&stream1) );
 
-    for (isweep=0;isweep<nsweeps;isweep++){
+    cudaStream_t stream2;
+    gpuErrchk( cudaStreamCreate(&stream2) );
+
+    t1 = clock();  // Start Timer
+
+    isweep = 0;
+    while(isweep < tot_nsweeps){
+
+
 
       // Output grids to file
-      if (isweep%1000==0){
-        gpuErrchk( cudaMemcpy(ising_grids,d_ising_grids,L*L*ngrids*sizeof(int),cudaMemcpyDeviceToHost) );
+      if (isweep%grid_output_int==0){
+        // Asynchronous - can happen while magnetisation is being computed in stream 2
+        gpuErrchk( cudaMemcpyAsync(ising_grids,d_ising_grids,L*L*ngrids*sizeof(int),cudaMemcpyDeviceToHost,stream1) );
+      }
+
+      // Can compute manetisation while grids are copying
+      if (isweep%mag_output_int==0){
+        compute_magnetisation_gpu<<<blocksPerGrid, threadsPerBlock, 0, stream2>>>(L, ngrids, d_ising_grids, d_magnetisation);    
+        gpuErrchk( cudaMemcpyAsync(magnetisation,d_magnetisation,ngrids*sizeof(float),cudaMemcpyDeviceToHost, stream2) );
+      } 
+
+      // MC Sweep - GPU
+      gpuErrchk( cudaStreamSynchronize(stream1) ); // Make sure copy completed before making changes
+
+      if (gpu_method==0){
+        mc_sweep_gpu<<<blocksPerGrid,threadsPerBlock,0,stream1>>>(L,d_state,ngrids,d_ising_grids,d_neighbour_list, (float)beta,(float)h,sweeps_per_call);
+      } else if (gpu_method==1){
+          size_t shmem_size = L*L*threadsPerBlock*sizeof(uint8_t)/8; // number of bytes needed to store grid as bits
+          mc_sweep_gpu_bitrep<<<blocksPerGrid,threadsPerBlock,shmem_size,stream1>>>(L,d_state,ngrids,d_ising_grids, d_neighbour_list, (float)beta,(float)h,sweeps_per_call);
+      } else if (gpu_method==2){
+          size_t shmem_size = L*L*threadsPerBlock*sizeof(uint8_t)/8; // number of bytes needed to store grid as bits
+          if (threadsPerBlock==32){
+            mc_sweep_gpu_bitmap32<<<blocksPerGrid,threadsPerBlock,shmem_size,stream1>>>(L,d_state,ngrids,d_ising_grids, d_neighbour_list, (float)beta,(float)h,sweeps_per_call);
+          } else if (threadsPerBlock==64){
+            mc_sweep_gpu_bitmap64<<<blocksPerGrid,threadsPerBlock,shmem_size,stream1>>>(L,d_state,ngrids,d_ising_grids, d_neighbour_list, (float)beta,(float)h,sweeps_per_call);
+          } else {
+            printf("Invalid threadsPerBlock for gpu_method=2\n");
+            exit(EXIT_FAILURE);
+          } 
+      } else {
+        printf("Unknown gpu_method in ising.cu\n");
+        exit(EXIT_FAILURE);
+      }
+      
+      // Writing of the grids can be happening on the host while the device runs the mc_sweep kernel
+      if (isweep%grid_output_int==0){
         write_ising_grids(L, ngrids, ising_grids, isweep);  
       }
 
-      // MC Sweep - GPU
-      mc_sweep_gpu<<<blocksPerGrid,threadsPerBlock>>>(L,d_state,ngrids,d_ising_grids,d_neighbour_list,(float)beta,(float)h);
-      gpuErrchk( cudaPeekAtLastError() );
-      gpuErrchk( cudaDeviceSynchronize() );
+      // Write the magnetisation - can also be happening while the device runs the mc_sweep kernel
+      if (isweep%mag_output_int==0){
+        gpuErrchk( cudaStreamSynchronize(stream2) );  // Wait for copy to complete
+        for (igrid=0;igrid<ngrids;igrid++){
+          printf("Magnetisation of grid %d at sweep %d = %8.4f\n",igrid, isweep, magnetisation[igrid]);
+        }
+      }
 
-      if (isweep%100==0){
-        compute_magnetisation_gpu<<<blocksPerGrid, threadsPerBlock>>>(L, ngrids, d_ising_grids, d_magnetisation);
-        gpuErrchk( cudaPeekAtLastError() );
-        gpuErrchk( cudaDeviceSynchronize() );
-        gpuErrchk( cudaMemcpy(magnetisation,d_magnetisation,ngrids*sizeof(float),cudaMemcpyDeviceToHost) );
-        //for (igrid=0;igrid<ngrids;igrid++){
-        //  printf("Magnetisation of grid %d at sweep %d = %8.4f\n",igrid, isweep, magnetisation[igrid]);
-        //}
-      } 
+      // Increment isweep
+      isweep += sweeps_per_call;
+
+      // Make sure all kernels updating the grids are finished before starting magnetisation calc
+      gpuErrchk( cudaStreamSynchronize(stream1) );
+      gpuErrchk( cudaPeekAtLastError() );
 
     }
+
+    // Ensure all threads finished before stopping timer
+    gpuErrchk( cudaDeviceSynchronize() )
 
     t2 = clock();
 
     printf("Time taken on GPU = %f seconds\n",(double)(t2-t1)/(double)CLOCKS_PER_SEC);
+
+    // Destroy streams
+    gpuErrchk( cudaStreamDestroy(stream1) );
+    gpuErrchk( cudaStreamDestroy(stream2) );
+
 
     // Free magnetisation arrays
     free(magnetisation);
