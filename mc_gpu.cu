@@ -3,7 +3,10 @@
 #include "mc_gpu.h"
 #include <stdio.h>
 
-__constant__ int blookup[2] = {-1, 1};
+// Cache of acceptance probabilities 
+__constant__ float d_Pacc[20];   // gpu constant memory
+
+//__constant__ int blookup[2] = {-1, 1};
 
 // Shared memory for storage of bits
 //__shared__ uint8_t shared_grid[SHGRIDSIZE]; 
@@ -181,7 +184,7 @@ inline __device__ int bits_to_ints(uint8_t* grid, int index){
   // L must be the number of entries in each row here. Important if ever adapting to non-square grids.
 
   uint8_t one = 1U;
-  //int lookup[2] = {-1, 1};
+  int blookup[2] = {-1, 1};
 
   //nt ibyte = (index)/8;
   //int ibit  = (index)%8;
@@ -198,6 +201,8 @@ inline __device__ int bits_to_ints(uint8_t* grid, int index){
 // for efficiency, and using a single bit represenation to acheive this. Mustn't
 // be used if L*L*threadsPerBlock/8 > SHGRIDSIZE. 
 __global__ void mc_sweep_gpu_bitrep(const int L, curandState *state, const int ngrids, int *d_ising_grids, int *d_neighbour_list, const float beta, const float h, int nsweeps) {
+
+  const int blookup[2] = {-1, 1};
 
   int idx = threadIdx.x+blockIdx.x*blockDim.x;
 
@@ -255,8 +260,9 @@ __global__ void mc_sweep_gpu_bitrep(const int L, curandState *state, const int n
       row = spin_index/L;
       col = spin_index%L;
       
-      spin = bits_to_ints(loc_grid, spin_index);
-      
+      //spin = bits_to_ints(loc_grid, spin_index);
+      spin = blookup[(loc_grid[spin_index >> 3] >> (spin_index & 7)) & one];
+
       // find neighbours
 
       //n1 = *d_neighbour_list[index+0];
@@ -269,10 +275,22 @@ __global__ void mc_sweep_gpu_bitrep(const int L, curandState *state, const int n
       //n3 = bits_to_ints(loc_grid, d_neighbour_list[4*spin_index+2]); 
       //n4 = bits_to_ints(loc_grid, d_neighbour_list[4*spin_index+3]); 
 
-      n1 = bits_to_ints(loc_grid, L*((row+1)%L) + col);
-      n2 = bits_to_ints(loc_grid, L*((row+L-1)%L) + col);
-      n3 = bits_to_ints(loc_grid, L*row + (col+1)%L);
-      n4 = bits_to_ints(loc_grid, L*row + (col+L-1)%L);
+      //n1 = bits_to_ints(loc_grid, L*((row+1)%L) + col);
+      //n2 = bits_to_ints(loc_grid, L*((row+L-1)%L) + col);
+      //n3 = bits_to_ints(loc_grid, L*row + (col+1)%L);
+      //n4 = bits_to_ints(loc_grid, L*row + (col+L-1)%L);
+
+      n1 = L*((row+1)%L) + col;
+      n1 = blookup[(loc_grid[n1 >> 3] >> (n1 & 7)) & one];
+
+      n2 = L*((row+L-1)%L) + col;
+      n2 = blookup[(loc_grid[n2 >> 3] >> (n2 & 7)) & one];
+
+      n3 = L*row + (col+1)%L;
+      n3 = blookup[(loc_grid[n3 >> 3] >> (n3 & 7)) & one];
+
+      n4 = L*row + (col+L-1)%L;
+      n4 = blookup[(loc_grid[n4 >> 3] >> (n4 & 7)) & one];
 
       //n1 = bits_to_ints(loc_grid, L*dc_next[row] + col);
       //n2 = bits_to_ints(loc_grid, L*dc_prev[row] + col);
@@ -309,7 +327,7 @@ __global__ void mc_sweep_gpu_bitrep(const int L, curandState *state, const int n
     //for (row=0;row<L;row++){
     //  for (col=0;col<L;col++){
     for (spin_index=0;spin_index<L*L;spin_index++){
-      d_ising_grids[L*L*idx + spin_index] = bits_to_ints(loc_grid,spin_index);
+      d_ising_grids[L*L*idx + spin_index] = blookup[(loc_grid[spin_index >> 3] >> (spin_index & 7)) & one];;
       //}
     }
 
@@ -325,12 +343,22 @@ __global__ void mc_sweep_gpu_bitrep(const int L, curandState *state, const int n
 // fixed bit in a datatype of size 4 bytes for faster addressing.
 __global__ void mc_sweep_gpu_bitmap32(const int L, curandState *state, const int ngrids, int *d_ising_grids, int *d_neighbour_list, const float beta, const float h, int nsweeps) {
 
+ const int llookup[2] = {-1, 1};
+
+
   int idx = threadIdx.x+blockIdx.x*blockDim.x;
 
   if (idx < ngrids) {
 
     // local copy of RNG state for current threads 
     curandState localState = state[idx];
+
+    // in-register copy of acceptance probabilities
+    //float loc_Pacc[20];
+    //int i;
+    //for (i=0;i<20;i++) {
+    //  loc_Pacc[i] = d_Pacc[i];
+    //}
 
     // Shared memory for storage of bits
     uint32_t *bit_grid = (uint32_t*)&shared_grid[0];
@@ -366,13 +394,13 @@ __global__ void mc_sweep_gpu_bitmap32(const int L, curandState *state, const int
       row = my_idx >> 6;
       col = my_idx & 63;
 
-      spin = blookup[(bit_grid[my_idx] >> threadIdx.x) & one];
+      spin = llookup[(bit_grid[my_idx] >> threadIdx.x) & one];
       
       // find neighbours
-      n1 = blookup[(bit_grid[L*((row+1)%L) + col] >> threadIdx.x) & one];
-      n2 = blookup[(bit_grid[L*((row+L-1)%L) + col] >> threadIdx.x) & one];
-      n3 = blookup[(bit_grid[L*row + (col+1)%L] >> threadIdx.x) & one];
-      n4 = blookup[(bit_grid[L*row + (col+L-1)%L] >> threadIdx.x) & one];
+      n1 = llookup[(bit_grid[L*((row+1)%L) + col] >> threadIdx.x) & one];
+      n2 = llookup[(bit_grid[L*((row+L-1)%L) + col] >> threadIdx.x) & one];
+      n3 = llookup[(bit_grid[L*row + (col+1)%L] >> threadIdx.x) & one];
+      n4 = llookup[(bit_grid[L*row + (col+L-1)%L] >> threadIdx.x) & one];
 
       //n1 = blookup[(bit_grid[L*((row+1) & 63) + col] >> threadIdx.x) & one];
       //n2 = blookup[(bit_grid[L*((row+L-1) & 63) + col] >> threadIdx.x) & one];
@@ -396,7 +424,7 @@ __global__ void mc_sweep_gpu_bitmap32(const int L, curandState *state, const int
     for (row=0;row<L;row++){
       for (col=0;col<L;col++){
         my_idx = L*row + col;
-        d_ising_grids[N*idx+my_idx] = blookup[(bit_grid[my_idx] >> threadIdx.x) & one];
+        d_ising_grids[N*idx+my_idx] = llookup[(bit_grid[my_idx] >> threadIdx.x) & one];
       }
     }
 
@@ -407,6 +435,8 @@ __global__ void mc_sweep_gpu_bitmap32(const int L, curandState *state, const int
 }
 
 __global__ void mc_sweep_gpu_bitmap64(const int L, curandState *state, const int ngrids, int *d_ising_grids, int *d_neighbour_list, const float beta, const float h, int nsweeps) {
+
+  const int llookup[2] = {-1, 1};
 
   int idx = threadIdx.x+blockIdx.x*blockDim.x;
 
@@ -447,14 +477,14 @@ __global__ void mc_sweep_gpu_bitmap64(const int L, curandState *state, const int
       row = my_idx/L;
       col = my_idx%L;
 
-      spin = blookup[(bit_grid[my_idx] >> threadIdx.x) & one];
+      spin = llookup[(bit_grid[my_idx] >> threadIdx.x) & one];
       
       // find neighbours
       n_sum = 0;
-      n_sum += blookup[(bit_grid[L*((row+1)%L) + col] >> threadIdx.x) & one];
-      n_sum += blookup[(bit_grid[L*((row+L-1)%L) + col] >> threadIdx.x) & one];
-      n_sum += blookup[(bit_grid[L*row + (col+1)%L] >> threadIdx.x) & one];
-      n_sum += blookup[(bit_grid[L*row + (col+L-1)%L] >> threadIdx.x) & one];
+      n_sum += llookup[(bit_grid[L*((row+1)%L) + col] >> threadIdx.x) & one];
+      n_sum += llookup[(bit_grid[L*((row+L-1)%L) + col] >> threadIdx.x) & one];
+      n_sum += llookup[(bit_grid[L*row + (col+1)%L] >> threadIdx.x) & one];
+      n_sum += llookup[(bit_grid[L*row + (col+L-1)%L] >> threadIdx.x) & one];
 
       //n_sum = 4;
       index = 5*(spin+1) + n_sum + 4;
@@ -473,7 +503,7 @@ __global__ void mc_sweep_gpu_bitmap64(const int L, curandState *state, const int
     for (row=0;row<L;row++){
       for (col=0;col<L;col++){
         my_idx = L*row + col;
-        d_ising_grids[L*L*idx+my_idx] = blookup[(bit_grid[my_idx] >> threadIdx.x) & one];
+        d_ising_grids[L*L*idx+my_idx] = llookup[(bit_grid[my_idx] >> threadIdx.x) & one];
       }
     }
 

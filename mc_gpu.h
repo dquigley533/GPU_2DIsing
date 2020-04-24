@@ -5,8 +5,7 @@
 
 #include "gpu_tools.h"
 
-// Cache of acceptance probabilities 
-__constant__ float d_Pacc[20];   // gpu constant memory
+
 
 
 
