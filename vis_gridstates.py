@@ -68,7 +68,7 @@ while True:
             irow = 0
             icol = 0
             for byte in gridbuffer:
-                bits = np.unpackbits(byte)
+                bits = np.unpackbits(byte, bitorder='little')
                 for bit in bits:
                     grid[irow][icol] = bit
                     icol = icol + 1
