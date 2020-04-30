@@ -4,7 +4,7 @@
 void write_ising_grids(int L, int ngrids, int *ising_grids, int isweep){
 
     // Set filename
-    char filename[14];
+    char filename[15];
     sprintf(filename, "gridstates.dat");
     //printf("%s\n",filename);
 
@@ -42,7 +42,7 @@ void write_ising_grids(int L, int ngrids, int *ising_grids, int isweep){
 
         if ( ising_grids[iint] == 1 ) {
             bitgrids[ibyte] |= one << ibit;
-            printf("Set bit %d of byte %d\n", ibit, ibyte);
+            //printf("Set bit %d of byte %d\n", ibit, ibyte);
         }
 
         ibit++;

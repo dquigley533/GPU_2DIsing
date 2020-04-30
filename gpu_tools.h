@@ -15,6 +15,9 @@ void gpuInit(int deviceIndex=-1);
 void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true);
 
 // Prototype for RNG initialisation
-__global__ void init_gpurand(unsigned long long seed, curandStatePhilox4_32_10_t *state);
+__global__ void init_gpurand(unsigned long long seed, int ngrids, curandState *state);
+
+// For testing generation of random numbers on each thread
+__global__ void populate_random(int length, float *rnd_array, curandState *state);
 
 #endif
