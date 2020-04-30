@@ -13,6 +13,7 @@ for gathering rare event statistics on nucleation during magnetisation reversal.
 // 1. sweep counter probably needs to be a long and not an int
 // 2. read input configuration from file
 // 3. clustering using nvgraph?
+// 4. Fix device global memory report
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,7 +32,7 @@ extern "C" {
 #include "gpu_tools.h"
 
 const bool run_gpu = true;     // Run using GPU
-const bool run_cpu = false;    // Run using CPU
+const bool run_cpu = false;     // Run using CPU
 
 int main (int argc, char *argv[]) {
 
@@ -46,9 +47,9 @@ int main (int argc, char *argv[]) {
   int mag_output_int  = 100;   // Number of MC sweeps between calculation of magnetisation
   int grid_output_int = 1000;  // Number of MC sweeps between dumps of grid to file
 
-  double beta = 1.0/1.5;       // Inverse temperature
-  double h = 0.05;             // External field
- 
+  double beta = 0.54;       // Inverse temperature
+  double h = 0.07;          // External field
+
   unsigned long rngseed = 2894203475;  // RNG seed (fixed for development/testing)
   
   int threadsPerBlock = 32;            // Number of threads/replicas to run in each threadBlock
@@ -59,16 +60,20 @@ int main (int argc, char *argv[]) {
 /*=================================
    Process command line arguments 
   =================================*/ 
-  if (argc != 6) {
-    printf("Usage : ./ising2D nsweeps nreplicas threadsPerBlock gpu_device gpu_method \n");
+  if (argc != 10) {
+    printf("Usage : GPU_2DIsing nsweeps nreplicas mag_output_int grid_output_int threadsPerBlock gpu_device gpu_method beta h \n");
     exit(EXIT_FAILURE);
   }
 
   tot_nsweeps     = atoi(argv[1]);  // Number of MC sweeps to simulate
   ngrids          = atoi(argv[2]);  // Number of replicas (grids) to simulate
-  threadsPerBlock = atoi(argv[3]);  // Number of thread per block (multiple of 32)
-  gpu_device      = atoi(argv[4]);  // Which GPU device to use (normally 0) 
-  gpu_method      = atoi(argv[5]);  // Which kernel to use for MC sweeps
+  mag_output_int  = atoi(argv[3]);  // Sweeps between printing magnetisation
+  mag_output_int  = atoi(argv[4]);  // Sweeps between dumps of grid
+  threadsPerBlock = atoi(argv[5]);  // Number of thread per block (multiple of 32)
+  gpu_device      = atoi(argv[6]);  // Which GPU device to use (normally 0) 
+  gpu_method      = atoi(argv[7]);  // Which kernel to use for MC sweeps
+  beta            = atof(argv[8]);  // Inverse temperature
+  h               = atof(argv[9]); // Magnetic field
 
 /*=================================
    Delete old output 
@@ -162,7 +167,6 @@ int main (int argc, char *argv[]) {
 
   }
 
-
 /*=================================
     Run simulations - CPU version
   =================================*/ 
@@ -220,6 +224,10 @@ int main (int argc, char *argv[]) {
   =================================*/ 
   if (run_gpu==true){
 
+    // Write header
+    printf("#  Replica     MC Sweep     Magnetisation\n");
+
+
     // Host copy of magnetisation
     float *magnetisation = (float *)malloc(ngrids*sizeof(float));
     if (magnetisation==NULL){
@@ -237,6 +245,7 @@ int main (int argc, char *argv[]) {
 
     cudaStream_t stream2;
     gpuErrchk( cudaStreamCreate(&stream2) );
+
 
     t1 = clock();  // Start Timer
 
@@ -289,7 +298,7 @@ int main (int argc, char *argv[]) {
       if (isweep%mag_output_int==0){
         gpuErrchk( cudaStreamSynchronize(stream2) );  // Wait for copy to complete
         for (igrid=0;igrid<ngrids;igrid++){
-          printf("Magnetisation of grid %d at sweep %d = %8.4f\n",igrid, isweep, magnetisation[igrid]);
+          printf("    %4d     %10d      %8.6f\n",igrid, isweep, magnetisation[igrid]);
         }
       }
 
