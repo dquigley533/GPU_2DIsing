@@ -12,8 +12,10 @@ for gathering rare event statistics on nucleation during magnetisation reversal.
 // TODO
 // 1. sweep counter probably needs to be a long and not an int
 // 2. read input configuration from file
-// 3. clustering using nvgraph?
-// 4. Fix device global memory report
+// 3. clustering on GPU asynchronously with GPU
+// 4. fix device global memory report
+// 5. write magnetisation to binary file
+// 6. add function modes (committor calc vs nulceated count)
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -68,7 +70,7 @@ int main (int argc, char *argv[]) {
   tot_nsweeps     = atoi(argv[1]);  // Number of MC sweeps to simulate
   ngrids          = atoi(argv[2]);  // Number of replicas (grids) to simulate
   mag_output_int  = atoi(argv[3]);  // Sweeps between printing magnetisation
-  mag_output_int  = atoi(argv[4]);  // Sweeps between dumps of grid
+  grid_output_int = atoi(argv[4]);  // Sweeps between dumps of grid
   threadsPerBlock = atoi(argv[5]);  // Number of thread per block (multiple of 32)
   gpu_device      = atoi(argv[6]);  // Which GPU device to use (normally 0) 
   gpu_method      = atoi(argv[7]);  // Which kernel to use for MC sweeps
