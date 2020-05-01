@@ -318,7 +318,9 @@ __global__ void mc_sweep_gpu_bitmap32(const int L, curandState *state, const int
 
       if (curand_uniform(&localState) < d_Pacc[index] ) {
           // accept - toggle bit
-          bit_grid[my_idx] ^= one << threadIdx.x;
+          //bit_grid[my_idx] ^= one << threadIdx.x;
+          atomicXor(&bit_grid[my_idx],one << threadIdx.x);
+
       } 
       
       
@@ -396,6 +398,7 @@ __global__ void mc_sweep_gpu_bitmap64(const int L, curandState *state, const int
       if (curand_uniform(&localState) < d_Pacc[index] ) {
           // accept - toggle bit
           bit_grid[my_idx] ^= one << threadIdx.x;
+          //atomicXor(&bit_grid[my_idx],one << threadIdx.x);  // unsupported for uint64_t
       } 
       
       
