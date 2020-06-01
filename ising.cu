@@ -33,7 +33,7 @@ extern "C" {
 #include "mc_gpu.h"
 #include "gpu_tools.h"
 
-const bool run_gpu = true;     // Run using GPU
+const bool run_gpu = true;      // Run using GPU
 const bool run_cpu = false;     // Run using CPU
 
 int main (int argc, char *argv[]) {
@@ -46,11 +46,16 @@ int main (int argc, char *argv[]) {
   int ngrids  = 1;             // Number of replicas of 2D grid to simulate
   int tot_nsweeps = 100;       // Total number of MC sweeps to simulate on each grid
 
+  int itask = 0;               // 0 = count samples which nucleate, 1 = compute committor
+
   int mag_output_int  = 100;   // Number of MC sweeps between calculation of magnetisation
   int grid_output_int = 1000;  // Number of MC sweeps between dumps of grid to file
 
   double beta = 0.54;       // Inverse temperature
   double h = 0.07;          // External field
+
+  double dn_threshold = -0.90;         // Magnetisation at which we consider the system to have reached spin up state
+  double up_threshold =  0.90;         // Magnetisation at which we consider the system to have reached spin down state
 
   unsigned long rngseed = 2894203475;  // RNG seed (fixed for development/testing)
   
@@ -62,8 +67,8 @@ int main (int argc, char *argv[]) {
 /*=================================
    Process command line arguments 
   =================================*/ 
-  if (argc != 10) {
-    printf("Usage : GPU_2DIsing nsweeps nreplicas mag_output_int grid_output_int threadsPerBlock gpu_device gpu_method beta h \n");
+  if (argc != 11) {
+    printf("Usage : GPU_2DIsing nsweeps nreplicas mag_output_int grid_output_int threadsPerBlock gpu_device gpu_method beta h itask \n");
     exit(EXIT_FAILURE);
   }
 
@@ -75,12 +80,21 @@ int main (int argc, char *argv[]) {
   gpu_device      = atoi(argv[6]);  // Which GPU device to use (normally 0) 
   gpu_method      = atoi(argv[7]);  // Which kernel to use for MC sweeps
   beta            = atof(argv[8]);  // Inverse temperature
-  h               = atof(argv[9]); // Magnetic field
+  h               = atof(argv[9]);  // Magnetic field
+  itask           = atof(argv[10]); // Calculation task
 
 /*=================================
    Delete old output 
   ================================*/
   remove("gridstates.dat");
+
+
+/*=================================
+   Write output header 
+  ================================*/
+  if (itask==0) {
+    printf("# isweep    nucleated fraction\n");
+  }
 
 /*=================================
    Initialise simulations
@@ -177,6 +191,8 @@ int main (int argc, char *argv[]) {
   int isweep;     // MC sweep loop counter
   int igrid;      // counter for loop over replicas
 
+
+
   if (run_cpu==true) {
 
     // Magnetisation of each grid
@@ -202,6 +218,14 @@ int main (int argc, char *argv[]) {
           compute_magnetisation_cpu(L, ising_grids, igrid, magnetisation);
           //printf("Magnetisation of grid %d at sweep %d = %8.4f\n",igrid, isweep, magnetisation[igrid]);
         }
+        if ( itask == 0 ) { // Report how many samples have nucleated.
+          int nnuc = 0;
+          for (igrid=0;igrid<ngrids;igrid++){
+            if ( magnetisation[igrid] > up_threshold ) nnuc++;
+          }
+          printf("%10d  %12.6f\n",isweep, (double)nnuc/(double)ngrids);
+          if (nnuc==ngrids) break; // Stop if everyone has nucleated
+        }
       } 
 
       // MC Sweep - CPU
@@ -214,7 +238,7 @@ int main (int argc, char *argv[]) {
 
     t2 = clock();  // Stop Timer
 
-    printf("Time taken on CPU = %f seconds\n",(double)(t2-t1)/(double)CLOCKS_PER_SEC);
+    printf("# Time taken on CPU = %f seconds\n",(double)(t2-t1)/(double)CLOCKS_PER_SEC);
 
     // Release memory
     free(magnetisation);
@@ -225,10 +249,6 @@ int main (int argc, char *argv[]) {
     Run simulations - GPU version
   =================================*/ 
   if (run_gpu==true){
-
-    // Write header
-    printf("#  Replica     MC Sweep     Magnetisation\n");
-
 
     // Host copy of magnetisation
     float *magnetisation = (float *)malloc(ngrids*sizeof(float));
@@ -299,9 +319,18 @@ int main (int argc, char *argv[]) {
       // Write the magnetisation - can also be happening while the device runs the mc_sweep kernel
       if (isweep%mag_output_int==0){
         gpuErrchk( cudaStreamSynchronize(stream2) );  // Wait for copy to complete
-        for (igrid=0;igrid<ngrids;igrid++){
-          printf("    %4d     %10d      %8.6f\n",igrid, isweep, magnetisation[igrid]);
+        //for (igrid=0;igrid<ngrids;igrid++){
+        //  printf("    %4d     %10d      %8.6f\n",igrid, isweep, magnetisation[igrid]);
+        //}
+        if ( itask == 0 ) { // Report how many samples have nucleated.
+          int nnuc = 0;
+          for (igrid=0;igrid<ngrids;igrid++){
+            if ( magnetisation[igrid] > up_threshold ) nnuc++;
+          }
+          printf("%10d  %12.6f\n",isweep, (double)nnuc/(double)ngrids);
+          if (nnuc==ngrids) break; // Stop if everyone has nucleated
         }
+
       }
 
       // Increment isweep
