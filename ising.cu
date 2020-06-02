@@ -272,7 +272,7 @@ int main (int argc, char *argv[]) {
 
           // Monitor progress
           printf("\rReached m = %6.2f : %4d , Reached m = %6.2f : %4d , Unresolved : %4d", dn_threshold, nA, up_threshold, nB, ngrids-nA-nB);
-          
+          fflush(stdout);
           if (nA + nB == ngrids) break; // all fates resolved
         } // task
       } 
@@ -400,7 +400,7 @@ int main (int argc, char *argv[]) {
 
           // Monitor progress
           printf("\rReached m = %6.2f : %4d , Reached m = %6.2f : %4d , Unresolved : %4d", dn_threshold, nA, up_threshold, nB, ngrids-nA-nB);
-          
+          fflush(stdout);
           if (nA + nB == ngrids) break; // all fates resolved
         
         } // task 
