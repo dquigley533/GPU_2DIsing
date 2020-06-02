@@ -86,7 +86,7 @@ int main (int argc, char *argv[]) {
 /*=================================
    Delete old output 
   ================================*/
-  remove("gridstates.dat");
+  remove("gridstates.bin");
 
 
 /*=================================
@@ -106,9 +106,34 @@ int main (int argc, char *argv[]) {
     exit(EXIT_FAILURE);
   }
   
-  // Initialise as spin down 
+
   int i;
-  for (i=0;i<L*L*ngrids;i++) { ising_grids[i] = -1; }
+  int *grid_fate;  // stores pending(-1), reached B first (1) or reached A first (0)
+
+  if (itask==0) {  // counting nucleated samples over time
+
+    // Initialise as spin down  
+    for (i=0;i<L*L*ngrids;i++) { ising_grids[i] = -1; }
+
+  } else if (itask==1) {
+
+    // Read from file
+    read_input_grid(L, ngrids, ising_grids);
+
+    grid_fate = (int *)malloc(ngrids*sizeof(int));
+    if (grid_fate==0) {
+      printf("Error allocating memory for grid fates\n");
+      exit(EXIT_FAILURE);
+    }
+    for (i=0;i<ngrids;i++) { grid_fate[i] = -1; } // all pending
+
+  } else {
+
+    printf("Error - unknown value of itask!");
+    exit(EXIT_FAILURE);
+
+  }
+
 
   // TODO - replace with configuration read from file
 
@@ -225,7 +250,31 @@ int main (int argc, char *argv[]) {
           }
           printf("%10d  %12.6f\n",isweep, (double)nnuc/(double)ngrids);
           if (nnuc==ngrids) break; // Stop if everyone has nucleated
-        }
+        } else if ( itask == 1 ){
+
+          // Statistics on fate of trajectories
+          int nA=0, nB=0;
+          for (igrid=0;i<ngrids;igrid++){
+            if (grid_fate[igrid]==0 ) {
+              nA++;
+            } else if (grid_fate[igrid]==1 ) {
+              nB++;
+            } else {
+              if ( magnetisation[igrid] > up_threshold ){
+                grid_fate[igrid] = 1;
+                nB++;
+              } else if (magnetisation[igrid] < dn_threshold ){
+                grid_fate[igrid] = 0;
+                nA++;
+              }
+            } // fate
+          } //grids
+
+          // Monitor progress
+          printf("\rReached m = %6.2f : %4d , Reached m = %6.2f : %4d , Unresolved : %4d", dn_threshold, nA, up_threshold, nB, ngrids-nA-nB);
+          
+          if (nA + nB == ngrids) break; // all fates resolved
+        } // task
       } 
 
       // MC Sweep - CPU
@@ -316,7 +365,7 @@ int main (int argc, char *argv[]) {
         write_ising_grids(L, ngrids, ising_grids, isweep);  
       }
 
-      // Write the magnetisation - can also be happening while the device runs the mc_sweep kernel
+      // Write and report magnetisation - can also be happening while the device runs the mc_sweep kernel
       if (isweep%mag_output_int==0){
         gpuErrchk( cudaStreamSynchronize(stream2) );  // Wait for copy to complete
         //for (igrid=0;igrid<ngrids;igrid++){
@@ -329,8 +378,32 @@ int main (int argc, char *argv[]) {
           }
           printf("%10d  %12.6f\n",isweep, (double)nnuc/(double)ngrids);
           if (nnuc==ngrids) break; // Stop if everyone has nucleated
-        }
+        } else if ( itask == 1 ){
 
+            // Statistics on fate of trajectories
+            int nA=0, nB=0;
+            for (igrid=0;i<ngrids;igrid++){
+              if (grid_fate[igrid]==0 ) {
+                nA++;
+              } else if (grid_fate[igrid]==1 ) {
+                nB++;
+              } else {
+                if ( magnetisation[igrid] > up_threshold ){
+                  grid_fate[igrid] = 1;
+                  nB++;
+                } else if (magnetisation[igrid] < dn_threshold ){
+                  grid_fate[igrid] = 0;
+                  nA++;
+                }
+              } // fate
+            } //grids
+
+          // Monitor progress
+          printf("\rReached m = %6.2f : %4d , Reached m = %6.2f : %4d , Unresolved : %4d", dn_threshold, nA, up_threshold, nB, ngrids-nA-nB);
+          
+          if (nA + nB == ngrids) break; // all fates resolved
+        
+        } // task 
       }
 
       // Increment isweep

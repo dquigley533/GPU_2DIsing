@@ -249,7 +249,7 @@ __global__ void mc_sweep_gpu_bitrep(const int L, curandState *state, const int n
     //for (row=0;row<L;row++){
     //  for (col=0;col<L;col++){
     for (spin_index=0;spin_index<L*L;spin_index++){
-      d_ising_grids[L*L*idx + spin_index] = blookup[(loc_grid[spin_index >> 3] >> (spin_index & 7)) & one];;
+      d_ising_grids[L*L*idx + spin_index] = blookup[(loc_grid[spin_index >> 3] >> (spin_index & 7)) & one];
       //}
     }
 

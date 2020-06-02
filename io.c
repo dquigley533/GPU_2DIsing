@@ -1,11 +1,69 @@
 #include "io.h"
 
 
+void read_input_grid(int L, int ngrids, int *ising_grids){
+
+    // converts [0,1] to [-1,1]
+    const int blookup[2] = {-1, 1};
+
+    // Set filename
+    char filename[14];
+    sprintf(filename, "gridinput.bin");
+
+    uint32_t one = 1U;   
+
+    // open file
+    FILE *ptr = fopen(filename, "rb");
+    if (ptr==NULL){
+        fprintf(stderr, "Error opening %s for input!\n", filename);
+        exit(EXIT_FAILURE);
+    }
+
+    // read header specifying size of grid
+    int Lcheck;
+    fread(&Lcheck, sizeof(int), 1, ptr);
+    if (Lcheck!=L) {
+        fprintf(stderr, "Error - size of grid in input file does not match L!\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Allocate space to read a single grid as bits
+    int nbytes = L*L/8;
+    if ( (L*L)%8 !=0 ) { nbytes++; }
+    char *bitgrid = (char *)malloc(nbytes);
+    if (bitgrid==NULL){
+        fprintf(stderr,"Error allocating input buffer!");
+        exit(EXIT_FAILURE);
+    }
+
+    // Read the grid
+    fread(bitgrid, sizeof(char), nbytes, ptr);  
+
+    // Loop over grid points
+    int ibit=0, ibyte=0;
+    int isite=0, igrid;
+    for (ibyte=0;ibyte<nbytes;ibyte++){
+        for (ibit=0;ibit<sizeof(char);ibit++){
+
+            // Read into every copy of the grid
+            for (igrid=0;igrid<ngrids;igrid++){
+                ising_grids[L*L*igrid+isite] = blookup[(bitgrid[ibyte] >> ibit) & one];
+            }
+            isite++;
+        }
+        if (isite>L*L) break;
+    }
+
+    free(bitgrid);  // free input buffer
+    fclose(ptr);    // close input file
+
+}
+
 void write_ising_grids(int L, int ngrids, int *ising_grids, int isweep){
 
     // Set filename
     char filename[15];
-    sprintf(filename, "gridstates.dat");
+    sprintf(filename, "gridstates.bin");
     //printf("%s\n",filename);
 
     // open file
