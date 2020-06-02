@@ -287,7 +287,7 @@ int main (int argc, char *argv[]) {
 
     t2 = clock();  // Stop Timer
 
-    printf("# Time taken on CPU = %f seconds\n",(double)(t2-t1)/(double)CLOCKS_PER_SEC);
+    printf("\n# Time taken on CPU = %f seconds\n",(double)(t2-t1)/(double)CLOCKS_PER_SEC);
 
     // Release memory
     free(magnetisation);
@@ -420,7 +420,7 @@ int main (int argc, char *argv[]) {
 
     t2 = clock();
 
-    printf("Time taken on GPU = %f seconds\n",(double)(t2-t1)/(double)CLOCKS_PER_SEC);
+    printf("\n# Time taken on GPU = %f seconds\n",(double)(t2-t1)/(double)CLOCKS_PER_SEC);
 
     // Destroy streams
     gpuErrchk( cudaStreamDestroy(stream1) );
