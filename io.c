@@ -42,20 +42,25 @@ void read_input_grid(int L, int ngrids, int *ising_grids){
     // Loop over grid points
     int ibit=0, ibyte=0;
     int isite=0, igrid;
-    for (ibyte=0;ibyte<nbytes;ibyte++){
-        for (ibit=0;ibit<sizeof(char);ibit++){
 
+    //printf("nbytes = %d\n",nbytes);
+    for (ibyte=0;ibyte<nbytes;ibyte++){
+        for (ibit=0;ibit<8;ibit++){
+            //printf(" %2d ",blookup[(bitgrid[ibyte] >> ibit) & one]);
             // Read into every copy of the grid
             for (igrid=0;igrid<ngrids;igrid++){
                 ising_grids[L*L*igrid+isite] = blookup[(bitgrid[ibyte] >> ibit) & one];
             }
             isite++;
+            //if (isite%L==0) {printf("\n");}
         }
         if (isite>L*L) break;
     }
 
     free(bitgrid);  // free input buffer
     fclose(ptr);    // close input file
+
+    fprintf(stderr, "Read initial configuration of all grids from gridinput.bin\n");
 
 }
 

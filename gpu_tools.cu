@@ -49,9 +49,9 @@ void gpuInit(int deviceIndex){
         fprintf(stderr,"Device %d : %s\n",idev,prop.name);
         fprintf(stderr,"================================\n");
         fprintf(stderr,"Number of SMs       : %d\n",prop.multiProcessorCount);
-        fprintf(stderr,"Max SHMEM per block : %d\n",prop.sharedMemPerBlock);
-        fprintf(stderr,"Warp size           : %d\n",prop.warpSize);
-        fprintf(stderr,"Global DRAM         : %d\n",prop.totalGlobalMem);
+        fprintf(stderr,"Max SHMEM per block : %ld KB\n",prop.sharedMemPerBlock/1024);
+        //fprintf(stderr,"Warp size           : %d\n",prop.warpSize);
+        //fprintf(stderr,"Global DRAM         : %ld\n",prop.totalGlobalMem);
         fprintf(stderr,"\n");
 
     }

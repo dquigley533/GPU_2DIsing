@@ -11,11 +11,8 @@ for gathering rare event statistics on nucleation during magnetisation reversal.
 
 // TODO
 // 1. sweep counter probably needs to be a long and not an int
-// 2. read input configuration from file
-// 3. clustering on GPU asynchronously with GPU
-// 4. fix device global memory report
-// 5. write magnetisation to binary file
-// 6. add function modes (committor calc vs nulceated count)
+// 2. clustering on CPU asynchronously with GPU ?
+// 3. write magnetisation to binary file ?
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -57,8 +54,9 @@ int main (int argc, char *argv[]) {
   double dn_threshold = -0.90;         // Magnetisation at which we consider the system to have reached spin up state
   double up_threshold =  0.90;         // Magnetisation at which we consider the system to have reached spin down state
 
-  unsigned long rngseed = 2894203475;  // RNG seed (fixed for development/testing)
-  
+  //unsigned long rngseed = 2894203475;  // RNG seed (fixed for development/testing)
+  unsigned long rngseed = (long)time(NULL);
+
   int threadsPerBlock = 32;            // Number of threads/replicas to run in each threadBlock
   int blocksPerGrid   = 1;             // Total number of threadBlocks
   int gpu_device = -1;                 // GPU device to use
@@ -109,6 +107,7 @@ int main (int argc, char *argv[]) {
 
   int i;
   int *grid_fate;  // stores pending(-1), reached B first (1) or reached A first (0)
+  double pB;
 
   if (itask==0) {  // counting nucleated samples over time
 
@@ -121,7 +120,7 @@ int main (int argc, char *argv[]) {
     read_input_grid(L, ngrids, ising_grids);
 
     grid_fate = (int *)malloc(ngrids*sizeof(int));
-    if (grid_fate==0) {
+    if (grid_fate==NULL) {
       printf("Error allocating memory for grid fates\n");
       exit(EXIT_FAILURE);
     }
@@ -254,7 +253,8 @@ int main (int argc, char *argv[]) {
 
           // Statistics on fate of trajectories
           int nA=0, nB=0;
-          for (igrid=0;i<ngrids;igrid++){
+          for (igrid=0;igrid<ngrids;igrid++){
+            //printf("grid_fate[%d] = %d\n",igrid, grid_fate[igrid]);
             if (grid_fate[igrid]==0 ) {
               nA++;
             } else if (grid_fate[igrid]==1 ) {
@@ -271,7 +271,9 @@ int main (int argc, char *argv[]) {
           } //grids
 
           // Monitor progress
-          printf("\rReached m = %6.2f : %4d , Reached m = %6.2f : %4d , Unresolved : %4d", dn_threshold, nA, up_threshold, nB, ngrids-nA-nB);
+          pB = (double)nB/(double)(nA+nB);
+          printf("\r Sweep : %10d, Reached m = %6.2f : %4d , Reached m = %6.2f : %4d , Unresolved : %4d, pB = %10.6f",
+           isweep, dn_threshold, nA, up_threshold, nB, ngrids-nA-nB,pB);
           fflush(stdout);
           if (nA + nB == ngrids) break; // all fates resolved
         } // task
@@ -288,6 +290,7 @@ int main (int argc, char *argv[]) {
     t2 = clock();  // Stop Timer
 
     printf("\n# Time taken on CPU = %f seconds\n",(double)(t2-t1)/(double)CLOCKS_PER_SEC);
+    if (itask==1) { printf("pB estimate : %10.6f\n",pB); }
 
     // Release memory
     free(magnetisation);
@@ -382,7 +385,7 @@ int main (int argc, char *argv[]) {
 
             // Statistics on fate of trajectories
             int nA=0, nB=0;
-            for (igrid=0;i<ngrids;igrid++){
+            for (igrid=0;igrid<ngrids;igrid++){
               if (grid_fate[igrid]==0 ) {
                 nA++;
               } else if (grid_fate[igrid]==1 ) {
@@ -398,10 +401,12 @@ int main (int argc, char *argv[]) {
               } // fate
             } //grids
 
-          // Monitor progress
-          printf("\rReached m = %6.2f : %4d , Reached m = %6.2f : %4d , Unresolved : %4d", dn_threshold, nA, up_threshold, nB, ngrids-nA-nB);
-          fflush(stdout);
-          if (nA + nB == ngrids) break; // all fates resolved
+            // Monitor progress
+            pB = (double)nB/(double)(nA+nB);
+            printf("\r Sweep : %10d, Reached m = %6.2f : %4d , Reached m = %6.2f : %4d , Unresolved : %4d, pB = %10.6f",
+            isweep, dn_threshold, nA, up_threshold, nB, ngrids-nA-nB,pB);
+            fflush(stdout);
+            if (nA + nB == ngrids) break; // all fates resolved
         
         } // task 
       }
@@ -421,6 +426,7 @@ int main (int argc, char *argv[]) {
     t2 = clock();
 
     printf("\n# Time taken on GPU = %f seconds\n",(double)(t2-t1)/(double)CLOCKS_PER_SEC);
+    if (itask==1) { printf("pB estimate : %10.6f\n",pB); }
 
     // Destroy streams
     gpuErrchk( cudaStreamDestroy(stream1) );
