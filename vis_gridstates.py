@@ -109,6 +109,7 @@ while True:
             if event.key == pygame.K_w:
                 outfile = open("gridinput.bin","wb")
                 outfile.write(L.tobytes())
+                gridbuffer.tofile(outfile)
                 outfile.close()
                 print("Grid snapshot written to gridinput.bin")
                 
