@@ -6,7 +6,7 @@ prefix     = $(HOME)
 bindir     = $(prefix)/bin
 
 # Define objects in dependency order
-OBJECTS   = mt19937ar.o gpu_tools.o mc_cpu.o mc_gpu.o io.o
+OBJECTS   =  mt19937ar.o gpu_tools.o mc_cpu.o mc_gpu.o io.o parser.o 
 
 CC    = gcc
 NVCC  = nvcc
@@ -31,7 +31,7 @@ all : GPU_2DIsing
 
 GPU_2DIsing :  $(OBJECTS) ising.cu
 
-	$(LD) -o $(bindir)/GPU_2DIsing $(OBJECTS) ising.cu $(NVFLAGS) 
+	$(LD) -o $(bindir)/GPU_2DIsing $(OBJECTS) ising.cu $(NVFLAGS)
 
 clean : 
 

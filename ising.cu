@@ -25,31 +25,57 @@ for gathering rare event statistics on nucleation during magnetisation reversal.
 extern "C" {
   #include "mc_cpu.h"
   #include "io.h"
+  #include "parser.h"
 }
 
 #include "mc_gpu.h"
 #include "gpu_tools.h"
 
+
 const bool run_gpu = true;      // Run using GPU
 const bool run_cpu = false;     // Run using CPU
 
+
+
 int main (int argc, char *argv[]) {
+
+/*=================================
+    Parse Commandline arguments
+  =================================*/ 
+  // set default arguments
+  //  currently set the same as command in readme
+  default_args = (parser_arguments){
+    .nsweeps = 500000,
+    .ngrids = 1248,
+    .mag_output_int = 100,
+    .grid_output_int = 100,
+    .threads_per_block = 32,
+    .gpu_device = 0,
+    .gpu_method = 2,
+    .beta = 0.54,
+    .h = 0.07,
+    .itask = 0,
+    .output_file = (char*)"gridstates.bin",
+    .input_file = NULL
+  };
+
+  parser_arguments args = parse_cl_arguments(argc, argv);
 
 /*=================================
    Constants and variables
   =================================*/ 
   
   int L       = 64;            // Size of 2D Ising grid. LxL grid squares.
-  int ngrids  = 1;             // Number of replicas of 2D grid to simulate
-  int tot_nsweeps = 100;       // Total number of MC sweeps to simulate on each grid
+  int ngrids  = args.ngrids;             // Number of replicas of 2D grid to simulate
+  int tot_nsweeps = args.nsweeps;       // Total number of MC sweeps to simulate on each grid
 
-  int itask = 0;               // 0 = count samples which nucleate, 1 = compute committor
+  int itask = args.itask;               // 0 = count samples which nucleate, 1 = compute committor
 
-  int mag_output_int  = 100;   // Number of MC sweeps between calculation of magnetisation
-  int grid_output_int = 1000;  // Number of MC sweeps between dumps of grid to file
+  int mag_output_int  = args.mag_output_int;   // Number of MC sweeps between calculation of magnetisation
+  int grid_output_int = args.grid_output_int;  // Number of MC sweeps between dumps of grid to file
 
-  double beta = 0.54;       // Inverse temperature
-  double h = 0.07;          // External field
+  double beta = args.beta;       // Inverse temperature
+  double h = args.h;          // External field
 
   double dn_threshold = -0.90;         // Magnetisation at which we consider the system to have reached spin up state
   double up_threshold =  0.90;         // Magnetisation at which we consider the system to have reached spin down state
@@ -57,34 +83,22 @@ int main (int argc, char *argv[]) {
   //unsigned long rngseed = 2894203475;  // RNG seed (fixed for development/testing)
   unsigned long rngseed = (long)time(NULL);
 
-  int threadsPerBlock = 32;            // Number of threads/replicas to run in each threadBlock
+  int threadsPerBlock = args.threads_per_block;            // Number of threads/replicas to run in each threadBlock
   int blocksPerGrid   = 1;             // Total number of threadBlocks
-  int gpu_device = -1;                 // GPU device to use
-  int gpu_method = 0;                  // Which MC sweep kernel to use
+  int gpu_device = args.gpu_device;                 // GPU device to use
+  int gpu_method = args.gpu_method;                  // Which MC sweep kernel to use
 
-/*=================================
-   Process command line arguments 
-  =================================*/ 
-  if (argc != 11) {
-    printf("Usage : GPU_2DIsing nsweeps nreplicas mag_output_int grid_output_int threadsPerBlock gpu_device gpu_method beta h itask \n");
-    exit(EXIT_FAILURE);
-  }
-
-  tot_nsweeps     = atoi(argv[1]);  // Number of MC sweeps to simulate
-  ngrids          = atoi(argv[2]);  // Number of replicas (grids) to simulate
-  mag_output_int  = atoi(argv[3]);  // Sweeps between printing magnetisation
-  grid_output_int = atoi(argv[4]);  // Sweeps between dumps of grid
-  threadsPerBlock = atoi(argv[5]);  // Number of thread per block (multiple of 32)
-  gpu_device      = atoi(argv[6]);  // Which GPU device to use (normally 0) 
-  gpu_method      = atoi(argv[7]);  // Which kernel to use for MC sweeps
-  beta            = atof(argv[8]);  // Inverse temperature
-  h               = atof(argv[9]);  // Magnetic field
-  itask           = atof(argv[10]); // Calculation task
+  char *output_filename = args.output_file;
+  char *input_filename = args.input_file;
 
 /*=================================
    Delete old output 
   ================================*/
-  remove("gridstates.bin");
+  if (output_filename == NULL) {
+    fprintf(stderr, "No output file set.\nExiting.\n");
+    exit(EXIT_FAILURE);
+  }
+  remove(output_filename);
 
 
 /*=================================
@@ -111,13 +125,25 @@ int main (int argc, char *argv[]) {
 
   if (itask==0) {  // counting nucleated samples over time
 
-    // Initialise as spin down  
-    for (i=0;i<L*L*ngrids;i++) { ising_grids[i] = -1; }
+    if (input_filename == NULL) {
+      // Initialise as spin down  
+      for (i=0;i<L*L*ngrids;i++) { ising_grids[i] = -1; }
+    } else {
+      // read input from file
+      read_input_grid(L, ngrids, ising_grids, input_filename);
+    }
 
   } else if (itask==1) {
 
+    // check input filename is set
+    if (input_filename == NULL) {
+      // set to default if not already set
+      input_filename = (char*)"gridinput.bin";
+      printf("No input file specified, defaulting to %s", input_filename);
+    }
+
     // Read from file
-    read_input_grid(L, ngrids, ising_grids);
+    read_input_grid(L, ngrids, ising_grids, input_filename);
 
     grid_fate = (int *)malloc(ngrids*sizeof(int));
     if (grid_fate==NULL) {
@@ -233,7 +259,7 @@ int main (int argc, char *argv[]) {
 
       // Output grids to file
       if (isweep%grid_output_int==0){
-        write_ising_grids(L, ngrids, ising_grids, isweep);  
+        write_ising_grids(L, ngrids, ising_grids, isweep, output_filename);  
       }
 
       // Report magnetisations
@@ -365,7 +391,7 @@ int main (int argc, char *argv[]) {
       
       // Writing of the grids can be happening on the host while the device runs the mc_sweep kernel
       if (isweep%grid_output_int==0){
-        write_ising_grids(L, ngrids, ising_grids, isweep);  
+        write_ising_grids(L, ngrids, ising_grids, isweep, output_filename);  
       }
 
       // Write and report magnetisation - can also be happening while the device runs the mc_sweep kernel
