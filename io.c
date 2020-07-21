@@ -1,14 +1,15 @@
 #include "io.h"
 
 
-void read_input_grid(int L, int ngrids, int *ising_grids){
+void read_input_grid(int L, int ngrids, int *ising_grids, char *filename){
 
     // converts [0,1] to [-1,1]
     const int blookup[2] = {-1, 1};
 
-    // Set filename
-    char filename[14];
-    sprintf(filename, "gridinput.bin");
+    // filename shouldn't be NULL at this point but check
+    if (filename == NULL) {
+      filename = (char*)"gridinput.bin";
+    }
 
     uint32_t one = 1U;   
 
@@ -64,12 +65,12 @@ void read_input_grid(int L, int ngrids, int *ising_grids){
 
 }
 
-void write_ising_grids(int L, int ngrids, int *ising_grids, int isweep){
+void write_ising_grids(int L, int ngrids, int *ising_grids, int isweep, char *filename){
 
-    // Set filename
-    char filename[15];
-    sprintf(filename, "gridstates.bin");
-    //printf("%s\n",filename);
+    // filename shouldn't be NULL here but check
+    if (filename == NULL) {
+      filename = (char*)"gridstates.bin";
+    }
 
     // open file
     FILE *ptr = fopen(filename,"ab");
