@@ -1,5 +1,8 @@
 #include "mc_cpu.h"
 
+double Pacc[20];         // Cache of acceptance probabilities
+
+
 // populate acceptance probabilities
 void preComputeProbs_cpu(double beta, double h) {
 
