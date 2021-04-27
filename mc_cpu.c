@@ -31,14 +31,14 @@ void preComputeProbs_cpu(double beta, double h) {
 }     
 
 // sweep on the cpu
-void mc_sweep_cpu(int L, int *ising_grids, int grid_index, double beta, double h) {
+void mc_sweep_cpu(int L, int *ising_grids, int grid_index, double beta, double h, int nsweeps) {
 
   // Pointer to the current Ising grid
   int *loc_grid = &ising_grids[grid_index*L*L];
 
   int imove, row, col;
 
-  for (imove=0;imove<L*L;imove++){
+  for (imove=0;imove<L*L*nsweeps;imove++){
 
     // pick random spin
     row = floor(L*genrand_real3());  // RNG cannot generate 1.0 so safe
@@ -50,13 +50,10 @@ void mc_sweep_cpu(int L, int *ising_grids, int grid_index, double beta, double h
     int dn_idx = L*((row+1)%L)   + col;   
     int rt_idx = L*row + (col+1)%L;
     int lt_idx = L*row + (col+L-1)%L;
-
     
     // energy before flip
     int n_sum = loc_grid[up_idx] + loc_grid[dn_idx] + loc_grid[lt_idx] + loc_grid[rt_idx]; 
     //double energy_old = -1.0 * (double)loc_grid[my_idx] * ( (double)n_sum + h );
-
- 
 
     int index = 5*(loc_grid[my_idx]+1) + n_sum + 4;
 

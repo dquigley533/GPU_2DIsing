@@ -14,13 +14,13 @@ if (len(sys.argv)>1):    # Read from command line if present
     igrid = int(sys.argv[1])
 
 # Open file for binary reading
-gridfile = open("gridstates.dat", "rb")   
+gridfile = open("gridstates.bin", "rb")   
 
 # Size of grid
 try:
     L = np.fromfile(gridfile, dtype=np.int32, count=1)[0]
 except: # reached EOF
-    print("Could not read header from gridstates.dat") 
+    print("Could not read header from gridstates.bin") 
     exit()
     
 # Number of grids
@@ -40,8 +40,16 @@ print("Header reports L      = ",L)
 print("               ngrids = ",ngrids)
 print("        current sweep = ",isweep)
 
+# Number of bytes per timeslice
+bytes_per_slice = 12+ngrids*(L*L//8)
+
 # Array to hold state of lattice
-grid = np.empty([L, L], dtype=np.int) 
+grid = np.empty([L, L], dtype=np.int)
+
+# Populate with first entry
+gridfile.seek(bytes_per_slice*isweep + 12 + igrid*(L*L//8))
+gridbuffer = np.fromfile(gridfile, dtype=np.ubyte, count=L*L//8)
+
 
 # Set display
 pygame.init()
@@ -55,49 +63,73 @@ clock = pygame.time.Clock()
 
 # Loop until we break due to an error
 running = True
+advance = True
+
+iframe = 0
+
 while True:
+  
+                  
+    # Unpack grid from gridbuffer
+    irow = 0
+    icol = 0
+    for byte in gridbuffer:
+        bits = np.unpackbits(byte, bitorder='little')
+        for bit in bits:
+            grid[irow][icol] = bit
+            icol = icol + 1
+            if icol==L:
+                icol = 0;
+                irow = irow+1;
 
-    # Loop over grids
-    for jgrid in range(ngrids):
-    
-        # Read the current grid
-        gridbuffer = np.fromfile(gridfile, dtype=np.ubyte, count=L*L//8)
-
-        # If this is the grid of interest then populate 
-        if igrid==jgrid:
-            irow = 0
-            icol = 0
-            for byte in gridbuffer:
-                bits = np.unpackbits(byte)
-                for bit in bits:
-                    grid[irow][icol] = bit
-                    icol = icol + 1
-                    if icol==L:
-                        icol = 0;
-                        irow = irow+1;
-
-            for irow, row in enumerate(grid):
-                for icol, col in enumerate(row):
-                    pixel = grid[irow][icol]
-                    pygame.draw.rect(screen, color_map[pixel],
+    # Draw grid
+    for irow, row in enumerate(grid):
+        for icol, col in enumerate(row):
+            pixel = grid[irow][icol]
+            pygame.draw.rect(screen, color_map[pixel],
                         [icol*block_size, irow*block_size, block_size, block_size])
 
-            # Did the user click the window close button?
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running = False
+    # Process events
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_p:
+                advance = not advance;
+            if event.key == pygame.K_LEFT:
+                iframe = max(iframe-1,0)
+                advance = False
+            if event.key == pygame.K_RIGHT:
+                iframe += 1
+                advance = False
+            if event.key == pygame.K_UP:
+                igrid = min(igrid+1,ngrids-1)
+            if event.key == pygame.K_DOWN:
+                igrid = max(igrid-1,0)
+            if event.key == pygame.K_w:
+                outfile = open("gridinput.bin","wb")
+                outfile.write(L.tobytes())
+                gridbuffer.tofile(outfile)
+                outfile.close()
+                print("Grid snapshot written to gridinput.bin")
+                
+                    
+    # Update and limit frame rate
+    time_string = "Grid : %d, Sweep : %.d" % (igrid,isweep)
+    pygame.display.set_caption(time_string)
+    pygame.display.flip()
+    clock.tick()
 
-            # Update and limit frame rate
-            time_string = "Sweep : %.d" % isweep
-            pygame.display.set_caption(time_string)
-            pygame.display.flip()
-            clock.tick()
+    if not running:
+         break
 
-            if not running:
-                 break  
-
+    if (advance):         
+        iframe += 1
+        
+        
     # Read next header and quit if not present
     try:
+        gridfile.seek(bytes_per_slice*(iframe)) 
         L = np.fromfile(gridfile, dtype=np.int32, count=1)[0]
     except: # reached EOF
         break; 
@@ -108,4 +140,14 @@ while True:
     # Current MC sweep
     isweep = np.fromfile(gridfile, dtype=np.int32, count=1)[0]
 
+    # Read the grid
+    #gridfile.seek(igrid*(L*L//8),1)    # Move to igrid
+    #gridbuffer = np.fromfile(gridfile, dtype=np.ubyte, count=L*L//8)
+    #gridfile.seek((ngrids-igrid+1)*(L*L//8),1)   # skip remaining grids
+
+    gridfile.seek(bytes_per_slice*iframe + 12 + igrid*(L*L//8))
+    gridbuffer = np.fromfile(gridfile, dtype=np.ubyte, count=L*L//8)
+        
 gridfile.close()
+
+
