@@ -323,38 +323,19 @@ int main (int argc, char *argv[]) {
 
     t1 = clock();  // Start Timer
 
-    isweep = 0;
-    while(isweep < tot_nsweeps){
-
-
-
-      // Output grids to file
-      if (isweep%grid_output_int==0){
-        // Asynchronous - can happen while magnetisation is being computed in stream 2
-        gpuErrchk( cudaMemcpyAsync(ising_grids,d_ising_grids,L*L*ngrids*sizeof(int),cudaMemcpyDeviceToHost,stream1) );
-      }
-
-      // Can compute manetisation while grids are copying
-      if (isweep%mag_output_int==0){
-        compute_magnetisation_gpu<<<blocksPerGrid, threadsPerBlock, 0, stream2>>>(L, ngrids, d_ising_grids, d_magnetisation);    
-        gpuErrchk( cudaMemcpyAsync(magnetisation,d_magnetisation,ngrids*sizeof(float),cudaMemcpyDeviceToHost, stream2) );
-      } 
-
-      // MC Sweep - GPU
-      gpuErrchk( cudaStreamSynchronize(stream1) ); // Make sure copy completed before making changes
-
+    for(isweep=0; isweep<tot_nsweeps; isweep+=sweeps_per_call){
       if (gpu_method==0){
         mc_sweep_gpu<<<blocksPerGrid,threadsPerBlock,0,stream1>>>(L,d_state,ngrids,d_ising_grids,d_neighbour_list, (float)beta,(float)h,sweeps_per_call);
       } else if (gpu_method==1){
-          size_t shmem_size = L*L*threadsPerBlock*sizeof(uint8_t)/8; // number of bytes needed to store grid as bits
-          mc_sweep_gpu_bitrep<<<blocksPerGrid,threadsPerBlock,shmem_size,stream1>>>(L,d_state,ngrids,d_ising_grids, d_neighbour_list, (float)beta,(float)h,sweeps_per_call);
+        size_t shmem_size = L*L*threadsPerBlock*sizeof(uint8_t)/8; // number of bytes needed to store grid as bits
+        mc_sweep_gpu_bitrep<<<blocksPerGrid,threadsPerBlock,shmem_size,stream1>>>(L,d_state,ngrids,d_ising_grids, d_neighbour_list, (float)beta,(float)h,sweeps_per_call);
       } else if (gpu_method==2){
-          size_t shmem_size = L*L*threadsPerBlock*sizeof(uint8_t)/8; // number of bytes needed to store grid as bits
-          if (threadsPerBlock==32){
-            mc_sweep_gpu_bitmap32<<<blocksPerGrid,threadsPerBlock,shmem_size,stream1>>>(L,d_state,ngrids,d_ising_grids, d_neighbour_list, (float)beta,(float)h,sweeps_per_call);
-          } else if (threadsPerBlock==64){
-            mc_sweep_gpu_bitmap64<<<blocksPerGrid,threadsPerBlock,shmem_size,stream1>>>(L,d_state,ngrids,d_ising_grids, d_neighbour_list, (float)beta,(float)h,sweeps_per_call);
-          } else {
+        size_t shmem_size = L*L*threadsPerBlock*sizeof(uint8_t)/8; // number of bytes needed to store grid as bits
+        if (threadsPerBlock==32){
+          mc_sweep_gpu_bitmap32<<<blocksPerGrid,threadsPerBlock,shmem_size,stream1>>>(L,d_state,ngrids,d_ising_grids, d_neighbour_list, (float)beta,(float)h,sweeps_per_call);
+        } else if (threadsPerBlock==64){
+          mc_sweep_gpu_bitmap64<<<blocksPerGrid,threadsPerBlock,shmem_size,stream1>>>(L,d_state,ngrids,d_ising_grids, d_neighbour_list, (float)beta,(float)h,sweeps_per_call);
+        } else {
             printf("Invalid threadsPerBlock for gpu_method=2\n");
             exit(EXIT_FAILURE);
           } 
@@ -411,13 +392,27 @@ int main (int argc, char *argv[]) {
         } // task 
       }
 
-      // Increment isweep
-      isweep += sweeps_per_call;
-
       // Make sure all kernels updating the grids are finished before starting magnetisation calc
       gpuErrchk( cudaStreamSynchronize(stream1) );
       gpuErrchk( cudaPeekAtLastError() );
 
+      if(isweep < tot_nsweeps){ 
+        // TODO: This buffers from an extra output being written, if this extra output wouldnt be an issue we can remove the check @dquigly533
+
+        // Output grids to file
+        if (isweep%grid_output_int==0){
+          // Asynchronous - can happen while magnetisation is being computed in stream 2
+          gpuErrchk( cudaMemcpyAsync(ising_grids,d_ising_grids,L*L*ngrids*sizeof(int),cudaMemcpyDeviceToHost,stream1) );
+        }
+
+        // Can compute manetisation while grids are copying
+        if (isweep%mag_output_int==0){
+          compute_magnetisation_gpu<<<blocksPerGrid, threadsPerBlock, 0, stream2>>>(L, ngrids, d_ising_grids, d_magnetisation);    
+          gpuErrchk( cudaMemcpyAsync(magnetisation,d_magnetisation,ngrids*sizeof(float),cudaMemcpyDeviceToHost, stream2) );
+        } 
+      }
+      // MC Sweep - GPU
+      gpuErrchk( cudaStreamSynchronize(stream1) ); // Make sure copy completed before making changes
     }
 
     // Ensure all threads finished before stopping timer
