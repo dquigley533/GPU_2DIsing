@@ -2,6 +2,9 @@
 
 #include "mc_gpu.h"
 #include <stdio.h>
+#include <cstdint>
+#include <iostream>
+
 
 // Cache of acceptance probabilities 
 __constant__ float d_Pacc[20];   // gpu constant memory
@@ -61,14 +64,60 @@ for (spin_index=0;spin_index<L;spin_index++){
   hc_prev[spin_index] = (spin_index+L-1)%L;
 
 }
-
-gpuErrchk( cudaMemcpyToSymbol(dc_next, hc_next, MAXL*sizeof(uint8_t),0, cudaMemcpyHostToDevice ) );
-gpuErrchk( cudaMemcpyToSymbol(dc_prev, hc_prev, MAXL*sizeof(uint8_t),0, cudaMemcpyHostToDevice ) );
-  
-free(hc_next); 
-free(hc_prev);
-
 }
+
+__host__ __device__ bp_cell_id get_bp_cell(const int L, int16_t row, int16_t col){
+  bp_cell_id c;
+  int64_t bit = row * L + col;
+  c.byte = bit/8;
+  c.bit = 1 << bit%8;
+  return c;
+}
+
+void preComputeNeighbours_gpu_bp(const int L, int *d_ising_grids, bp_cell_id *d_neighbour_list){
+
+// These could probably be cached in shared memory since they are the same for all threads.
+
+  bp_cell_id *h_neighbour_list = new bp_cell_id[L*L*4];
+
+  int spin_index;
+  for (spin_index=0;spin_index<L*L;spin_index++){
+
+    int row = spin_index/L;
+    int col = spin_index%L;
+    //Get offset cells
+    int rowp = (row+1)%L, rowm = (row+L-1)%L;
+    int colp = (col+1)%L, colm = (row+L-1)%L;
+
+    h_neighbour_list[4*(row*L+col) + 0] = get_bp_cell(L,rowp, col);
+    h_neighbour_list[4*(row*L+col) + 1] = get_bp_cell(L,rowm, col);
+    h_neighbour_list[4*(row*L+col) + 2] = get_bp_cell(L,row, colp);
+    h_neighbour_list[4*(row*L+col) + 3] = get_bp_cell(L,row, colm);
+
+  }
+
+  gpuErrchk( cudaMemcpy(d_neighbour_list, h_neighbour_list, 4*L*L*sizeof(bp_cell_id),cudaMemcpyHostToDevice ) );
+
+  delete[] h_neighbour_list;
+
+/*  /// Also store a version in constant memory
+  uint8_t *hc_next = new uint8_t[MAXL];
+  uint8_t *hc_prev = new uint8_t[MAXL];
+
+  for (spin_index=0;spin_index<L;spin_index++){
+
+    hc_next[spin_index] = (spin_index+1)%L;
+    hc_prev[spin_index] = (spin_index+L-1)%L;
+
+  }
+
+  gpuErrchk( cudaMemcpyToSymbol(dc_next, hc_next, MAXL*sizeof(uint8_t),0, cudaMemcpyHostToDevice ) );
+  gpuErrchk( cudaMemcpyToSymbol(dc_prev, hc_prev, MAXL*sizeof(uint8_t),0, cudaMemcpyHostToDevice ) );
+  
+  delete[] hc_next; 
+  delete[] hc_prev;*/
+
+  }
 
 
 // sweep on the gpu - default version
@@ -261,6 +310,102 @@ __global__ void mc_sweep_gpu_bitrep(const int L, curandState *state, const int n
 
 }
 
+//Rotate packing so that data is packed with each threads data separate in memory
+__global__ void mc_sweep_gpu_bitpacked(const int L, curandState *state, const int ngrids, int *d_ising_grids, bp_cell_id *d_neighbour_list, const float beta, const float h, int nsweeps) {
+
+  const int llookup[2] = {-1, 1};
+
+  // Shared memory for storage of bits
+  uint8_t *bit_grid = &shared_grid[(1+(L*L-1)/8)*threadIdx.x];
+
+  uint8_t one  = 1U;
+  uint8_t zero = 0U;
+
+  // Location in global memory where grids for the current block are stored
+  int *block_grid = &d_ising_grids[L*L*(blockIdx.x*blockDim.x+threadIdx.x)];
+
+
+  // Populate from global memory, ensuring that uint32_t is only written to by a single thread.
+  int ispin,spin,ibit;
+//  printf("%i : %i : %i\n", blockIdx.x, threadIdx.x, L*L*threadIdx.x);
+  for (ispin=0;ispin<L*L;ispin+=8){
+    bit_grid[ispin/8] = zero;
+    for (ibit=0;ibit<8;ibit++){
+      spin = block_grid[ispin + ibit];
+      if ( spin == 1 ) {
+        bit_grid[ispin/8] |= one;
+      }
+      bit_grid[ispin/8]=bit_grid[ispin/8] << 1;
+    }
+  }
+
+  int idx = threadIdx.x+blockIdx.x*blockDim.x;
+
+  if (idx < ngrids) {
+    // local copy of RNG state for current threads
+    curandState localState = state[idx];
+
+    int N=L*L;
+    float shrink = (1.0f - FLT_EPSILON)*(float)N;
+    //float shrink = (1.0f - FLT_EPSILON);
+    int imove, row, col, index, my_idx, n1, n2 , n3, n4;
+
+    auto idc = get_bp_cell(L,row,col);
+    auto id=idc;
+
+    for (imove=0;imove<N*nsweeps;imove++){
+
+      my_idx = __float2int_rd(shrink*curand_uniform(&localState));
+      row = my_idx/L;
+      col = my_idx%L;
+      int rowp = (row+1)%L, rowm = (row+L-1)%L;
+      int colp = (col+1)%L, colm = (row+L-1)%L;
+      auto idc = get_bp_cell(L,row,col);
+
+      spin = llookup[(bit_grid[idc.byte] & idc.bit)>0];
+
+      // find neighbours
+//      auto id = d_neighbour_list[4*(row*L+col) + 0];
+      auto id = get_bp_cell(L,rowp,col);
+      n1 = llookup[(bit_grid[id.byte] & id.bit)>0];
+      id = get_bp_cell(L,rowm,col);
+      n2 = llookup[(bit_grid[id.byte] & id.bit)>0];
+      id = get_bp_cell(L,row,colp);
+      n3 = llookup[(bit_grid[id.byte] & id.bit)>0];
+      id = get_bp_cell(L,row,colm);
+      n4 = llookup[(bit_grid[id.byte] & id.bit)>0];
+
+      //n_sum = 4;
+      index = 5*(spin+1) + n1 + n2 + n3 + n4 + 4;
+
+      if (curand_uniform(&localState) < d_Pacc[index] ) {
+	  bit_grid[idc.byte] ^= idc.bit;
+      }
+
+
+    } //end for
+
+    // Copy local data back to device global memory
+    state[idx] = localState;
+
+    int l_idx=-1;
+    int ct=0;
+    for (row=0;row<L;row++){
+      for (col=0;col<L;col++){
+	l_idx++;
+	auto id = get_bp_cell(L,row,col);
+	block_grid[l_idx] = llookup[(bit_grid[id.byte] & id.bit)>0];
+	ct+=block_grid[l_idx];
+      }
+    }
+  }
+
+  return;
+
+}
+
+
+
 // Similar to mc_sweep_gpu_bitrep, but maps each thread in a block of 32 threads to a 
 // fixed bit in a datatype of size 4 bytes for faster addressing.
 __global__ void mc_sweep_gpu_bitmap32(const int L, curandState *state, const int ngrids, int *d_ising_grids, int *d_neighbour_list, const float beta, const float h, int nsweeps) {
@@ -282,7 +427,7 @@ __global__ void mc_sweep_gpu_bitmap32(const int L, curandState *state, const int
     for (ibit=0;ibit<blockDim.x;ibit++){
       spin = block_grid[ibit*L*L + ispin];
       if ( spin == 1 ) {
-        bit_grid[ispin] ^= one << ibit;
+        bit_grid[ispin] |= one << ibit;
       }
     }
   }
@@ -316,12 +461,22 @@ __global__ void mc_sweep_gpu_bitmap32(const int L, curandState *state, const int
       //n_sum = 4;
       index = 5*(spin+1) + n1 + n2 + n3 + n4 + 4;
 
+/*      int val = curand_uniform(&localState) < d_Pacc[index];
+      int obg = bit_grid[my_idx];
+      atomicXor(&bit_grid[my_idx],one << threadIdx.x);
+      bit_grid[my_idx] = bit_grid[my_idx] * val + obg * (1-val);*/
+
+//      atomicCAS(&bit_grid[my_idx],curand_uniform(&localState) < d_Pacc[index], bit_grid[my_idx] ^ one << threadIdx.x);
+
+
       if (curand_uniform(&localState) < d_Pacc[index] ) {
+//          if (curand_uniform(&localState) < df ) {
           // accept - toggle bit
           //bit_grid[my_idx] ^= one << threadIdx.x;
           atomicXor(&bit_grid[my_idx],one << threadIdx.x);
+//	    atomicCAS(&bit_grid[my_idx],curand_uniform(&localState) < d_Pacc[index], bit_grid[my_idx] ^ one << threadIdx.x);
 
-      } 
+      }
       
       
     } //end for
@@ -335,7 +490,6 @@ __global__ void mc_sweep_gpu_bitmap32(const int L, curandState *state, const int
         d_ising_grids[N*idx+my_idx] = llookup[(bit_grid[my_idx] >> threadIdx.x) & one];
       }
     }
-
   }
 
   return;
