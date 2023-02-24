@@ -83,6 +83,8 @@ __global__ void mc_sweep_gpu(const int L, curandState *state, const int ngrids, 
     curandState localState = state[idx];
 
     int N = L*L;
+    // Avoid rounding errors after creating random numbers by ensuring out max
+    // is upto 1.0f not up to 1.0f + FLT_EPSILON
     float shrink = (1.0f - FLT_EPSILON)*(float)N;
 
     // Pointer to local grid
@@ -99,7 +101,7 @@ __global__ void mc_sweep_gpu(const int L, curandState *state, const int ngrids, 
 
       spin = loc_grid[my_idx];
 
-      // find neighbours
+      // find neighbours, periodic boundary conditions. D,U,L,R
       n1 = loc_grid[L*((row+1)%L) + col];
       n2 = loc_grid[L*((row+L-1)%L) + col];
       n3 = loc_grid[L*row + (col+1)%L];
@@ -114,6 +116,11 @@ __global__ void mc_sweep_gpu(const int L, curandState *state, const int ngrids, 
           // accept
           loc_grid[my_idx] = -1*spin;
       } 
+
+      // TODO: 
+      // Attempt a shared memory cache of changes then run the calculation 
+      // until this cache would do a register overflow and then do a write 
+      // global memory. This would need a list in shared memory that is ngrids*shrink*cached_changes.
       
       // Try avoiding the branch entirely - this seems quite slow
       //diff = curand_uniform(&localState) - d_Pacc[index] ;
