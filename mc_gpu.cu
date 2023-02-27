@@ -120,7 +120,13 @@ __global__ void mc_sweep_gpu(const int L, curandState *state, const int ngrids, 
       // TODO: 
       // Attempt a shared memory cache of changes then run the calculation 
       // until this cache would do a register overflow and then do a write 
-      // global memory. This would need a list in shared memory that is ngrids*shrink*cached_changes.
+      // global memory. This would need a list in shared memory that is 
+      // ngrids*bytes_to_store(up to ngrids*N_max)*number_of_cached_changes_per_grid
+      // This assumes any change would be a flip thus when we calculate the spins
+      // we simply do a flip back if hitting a change.
+      // additionally for cacheing we could use two threads per block and use 
+      // one to do the copying and one to do the calculation async. The chance of a 
+      // collision and a lock is low it will happen but not enough to be a bottleneck?
       
       // Try avoiding the branch entirely - this seems quite slow
       //diff = curand_uniform(&localState) - d_Pacc[index] ;
@@ -244,7 +250,7 @@ __global__ void mc_sweep_gpu_bitrep(const int L, curandState *state, const int n
           //ibyte = spin_index / 8;
           //index = spin_index % 8; 
           loc_grid[ibyte] ^= one << index;
-      } 
+      }
       
       
     } //end for
