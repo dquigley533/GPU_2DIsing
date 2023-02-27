@@ -135,6 +135,8 @@ int main (int argc, char *argv[]) {
   int *d_ising_grids;                    // Pointer to device grid configurations
   curandState *d_state;                  // Pointer to device RNG states
   int *d_neighbour_list;                 // Pointer to device neighbour lists
+  bp_cell_id *d_neighbour_struct_list;
+
 
   // How many sweeps to run in each call
   int sweeps_per_call;
@@ -168,7 +170,9 @@ int main (int argc, char *argv[]) {
 
     // Neighbours
     gpuErrchk (cudaMalloc((void **)&d_neighbour_list, L*L*4*sizeof(int)) );
+    gpuErrchk (cudaMalloc((void **)&d_neighbour_struct_list, L*L*4*sizeof(bp_cell_id)));
     preComputeNeighbours_gpu(L, d_ising_grids, d_neighbour_list);
+    preComputeNeighbours_gpu_bp(L, d_ising_grids, d_neighbour_struct_list);
 
     // Test CUDA RNG (DEBUG)
     /*
@@ -329,6 +333,9 @@ int main (int argc, char *argv[]) {
             printf("Invalid threadsPerBlock for gpu_method=2\n");
             exit(EXIT_FAILURE);
           } 
+      } else if (gpu_method==3){
+	       size_t shmem_size = L*L*threadsPerBlock*sizeof(uint8_t)/8; // number of bytes needed to store grid as bits
+	       mc_sweep_gpu_bitpacked<<<blocksPerGrid,threadsPerBlock,shmem_size,stream1>>>(L,d_state,ngrids,d_ising_grids, d_neighbour_struct_list, (float)beta,(float)h,sweeps_per_call);
       } else {
         printf("Unknown gpu_method in ising.cu\n");
         exit(EXIT_FAILURE);
@@ -406,7 +413,7 @@ int main (int argc, char *argv[]) {
     }
 
     // Ensure all threads finished before stopping timer
-    gpuErrchk( cudaDeviceSynchronize() )
+    gpuErrchk( cudaDeviceSynchronize() );
 
     t2 = clock();
 
