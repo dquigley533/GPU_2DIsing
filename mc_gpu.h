@@ -6,8 +6,11 @@
 #include "gpu_tools.h"
 
 
-
-
+//Type identifiying a cell in bitpacked representation
+struct bp_cell_id{
+  uint16_t byte;
+  unsigned char bit;
+};
 
 
 // pre-compute acceptance probabilities for spin flips
@@ -15,12 +18,14 @@ void preComputeProbs_gpu(double beta, double h);
 
 // pre-compute neighbours
 void preComputeNeighbours_gpu(const int L, int *d_ising_grids, int *d_neighbour_list);
+void preComputeNeighbours_gpu_bp(const int L, int *d_ising_grids, bp_cell_id *d_neighbour_list);
 
 
 // MC sweep on the GPU - 3 versions
 __global__ void mc_sweep_gpu(const int L, curandState *state, const int ngrids, int *d_ising_grids, int *d_neighbour_list, const float beta, const float h, int nsweeps);
 __global__ void mc_sweep_gpu_bitrep(const int L, curandState *state, const int ngrids, int *d_ising_grids, int *d_neighbour_list, const float beta, const float h, int nsweeps);
 __global__ void mc_sweep_gpu_bitmap32(const int L, curandState *state, const int ngrids, int *d_ising_grids, int *d_neighbour_list, const float beta, const float h, int nsweeps);
+__global__ void mc_sweep_gpu_bitpacked(const int L, curandState *state, const int ngrids, int *d_ising_grids, bp_cell_id *d_neighbour_list, const float beta, const float h, int nsweeps);
 __global__ void mc_sweep_gpu_bitmap64(const int L, curandState *state, const int ngrids, int *d_ising_grids, int *d_neighbour_list, const float beta, const float h, int nsweeps);
 
 // Compute magnetisation on the GPU

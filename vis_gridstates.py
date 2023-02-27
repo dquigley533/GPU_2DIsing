@@ -3,6 +3,11 @@
 import sys
 import numpy as np
 import pygame
+from argparse import ArgumentParser
+
+parser = ArgumentParser(prog='vis_gridstates',
+                        description='Visulise the output from GPU_2DISING',
+                        )
 
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
@@ -10,17 +15,21 @@ WHITE = (255, 255, 255)
 color_map = [BLACK, WHITE]
 
 igrid = 0       # Grid number to visualise
-if (len(sys.argv)>1):    # Read from command line if present
-    igrid = int(sys.argv[1])
+parser.add_argument('--igrid', default=0)
+parser.add_argument('-d', '--output_dir', default=".")
+
+args = parser.parse_args()
+print(args)
+igrid = int(args.igrid)
 
 # Open file for binary reading
-gridfile = open("gridstates.bin", "rb")   
+gridfile = open(f"{args.output_dir}/gridstates.bin", "rb")   
 
 # Size of grid
 try:
     L = np.fromfile(gridfile, dtype=np.int32, count=1)[0]
 except: # reached EOF
-    print("Could not read header from gridstates.bin") 
+    print(f"Could not read header from {args.output_dir}/gridstates.bin") 
     exit()
     
 # Number of grids
@@ -44,7 +53,7 @@ print("        current sweep = ",isweep)
 bytes_per_slice = 12+ngrids*(L*L//8)
 
 # Array to hold state of lattice
-grid = np.empty([L, L], dtype=np.int)
+grid = np.empty([L, L], dtype=np.int32)
 
 # Populate with first entry
 gridfile.seek(bytes_per_slice*isweep + 12 + igrid*(L*L//8))
@@ -107,11 +116,11 @@ while True:
             if event.key == pygame.K_DOWN:
                 igrid = max(igrid-1,0)
             if event.key == pygame.K_w:
-                outfile = open("gridinput.bin","wb")
+                outfile = open(f"{args.output_dir}/gridinput.bin","wb")
                 outfile.write(L.tobytes())
                 gridbuffer.tofile(outfile)
                 outfile.close()
-                print("Grid snapshot written to gridinput.bin")
+                print(f"Grid snapshot written to {args.output_dir}/gridinput.bin")
                 
                     
     # Update and limit frame rate
