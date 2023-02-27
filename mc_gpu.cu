@@ -379,7 +379,7 @@ __global__ void mc_sweep_gpu_bitpacked(const int L, curandState *state, const in
       index = 5*(spin+1) + n1 + n2 + n3 + n4 + 4;
 
       if (curand_uniform(&localState) < d_Pacc[index] ) {
-	  bit_grid[idc.byte] ^= idc.bit;
+	      bit_grid[idc.byte] ^= idc.bit;
       }
 
 
