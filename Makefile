@@ -12,8 +12,7 @@ CC    = gcc
 NVCC  = nvcc
 LD     = nvcc
 CFLAGS =  -O3 
-NVFLAGS = -O3 -gencode arch=compute_35,code=sm_35 \
-	          -gencode arch=compute_75,code=sm_75 \
+NVFLAGS = -O3 -gencode arch=compute_75,code=sm_75 \
 			  -gencode arch=compute_60,code=sm_60 --generate-line-info
 
 .PRECIOUS: %.o
