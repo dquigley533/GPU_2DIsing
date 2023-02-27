@@ -39,32 +39,22 @@ int main (int argc, char *argv[]) {
    Constants and variables
   =================================*/ 
   
-  int L       = 64;            // Size of 2D Ising grid. LxL grid squares.
-  int ngrids  = 1;             // Number of replicas of 2D grid to simulate
-  int tot_nsweeps = 100;       // Total number of MC sweeps to simulate on each grid
-
-  int itask = 0;               // 0 = count samples which nucleate, 1 = compute committor
-
-  int mag_output_int  = 100;   // Number of MC sweeps between calculation of magnetisation
-  int grid_output_int = 1000;  // Number of MC sweeps between dumps of grid to file
-
-  double beta = 0.54;       // Inverse temperature
-  double h = 0.07;          // External field
+  int L = 64;            // Size of 2D Ising grid. LxL grid squares.
 
   double dn_threshold = -0.90;         // Magnetisation at which we consider the system to have reached spin up state
   double up_threshold =  0.90;         // Magnetisation at which we consider the system to have reached spin down state
 
   //unsigned long rngseed = 2894203475;  // RNG seed (fixed for development/testing)
   unsigned long rngseed = (long)time(NULL);
-
-  int threadsPerBlock = 32;            // Number of threads/replicas to run in each threadBlock
-  int blocksPerGrid   = 1;             // Total number of threadBlocks
-  int gpu_device = -1;                 // GPU device to use
-  int gpu_method = 0;                  // Which MC sweep kernel to use
-
+  
 /*=================================
    Process command line arguments 
   =================================*/ 
+  int itask; 
+  int threadsPerBlock, blocksPerGrid, gpu_device, gpu_method;
+  int ngrids, tot_nsweeps, mag_output_int, grid_output_int;
+  double beta, h;
+
   if (argc != 11) {
     printf("Usage : GPU_2DIsing nsweeps nreplicas mag_output_int grid_output_int threadsPerBlock gpu_device gpu_method beta h itask \n");
     exit(EXIT_FAILURE);
@@ -145,8 +135,6 @@ int main (int argc, char *argv[]) {
   int *d_ising_grids;                    // Pointer to device grid configurations
   curandState *d_state;                  // Pointer to device RNG states
   int *d_neighbour_list;                 // Pointer to device neighbour lists
-  bp_cell_id *d_neighbour_struct_list;
-
 
   // How many sweeps to run in each call
   int sweeps_per_call;
@@ -180,9 +168,7 @@ int main (int argc, char *argv[]) {
 
     // Neighbours
     gpuErrchk (cudaMalloc((void **)&d_neighbour_list, L*L*4*sizeof(int)) );
-    gpuErrchk (cudaMalloc((void **)&d_neighbour_struct_list, L*L*4*sizeof(bp_cell_id)));
     preComputeNeighbours_gpu(L, d_ising_grids, d_neighbour_list);
-    preComputeNeighbours_gpu_bp(L, d_ising_grids, d_neighbour_struct_list);
 
     // Test CUDA RNG (DEBUG)
     /*
@@ -343,9 +329,6 @@ int main (int argc, char *argv[]) {
             printf("Invalid threadsPerBlock for gpu_method=2\n");
             exit(EXIT_FAILURE);
           } 
-      } else if (gpu_method==3){
-	       size_t shmem_size = L*L*threadsPerBlock*sizeof(uint8_t)/8; // number of bytes needed to store grid as bits
-	       mc_sweep_gpu_bitpacked<<<blocksPerGrid,threadsPerBlock,shmem_size,stream1>>>(L,d_state,ngrids,d_ising_grids, d_neighbour_struct_list, (float)beta,(float)h,sweeps_per_call);
       } else {
         printf("Unknown gpu_method in ising.cu\n");
         exit(EXIT_FAILURE);
@@ -423,7 +406,7 @@ int main (int argc, char *argv[]) {
     }
 
     // Ensure all threads finished before stopping timer
-    gpuErrchk( cudaDeviceSynchronize() );
+    gpuErrchk( cudaDeviceSynchronize() )
 
     t2 = clock();
 
