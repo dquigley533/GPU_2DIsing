@@ -103,7 +103,7 @@ int main() {
     long int cur_pos = 0;
 
     while (1) {
-        fread(index, sizeof(int), 3, ptr1);
+        fread(index, sizeof(int), 4, ptr1);
         fread(&tmp, sizeof(double), 1, ptr1);
         fread(&tmp, sizeof(double), 1, ptr1);
         if ( feof(ptr1) ) { break;}
@@ -113,9 +113,9 @@ int main() {
     fseek(ptr1, 0, SEEK_SET);
 
     while (1) {
-        fread(index, sizeof(int), 3, ptr1);
+        fread(index, sizeof(int), 4, ptr1);
         if ( feof(ptr1) ) { break;}
-        islice = index[0]/100;
+        islice = index[0]/grid_output_int;
         igrid = index[1];
         // Loops over slices i.e. sweep snapshots
         read_input_grid(ptr2, bitgrid, L, ising_grids, nreplicas, islice, igrid);
