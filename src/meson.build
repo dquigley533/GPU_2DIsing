@@ -9,7 +9,8 @@ gasp_src = ['gpu_tools.cu',
             'io.c',
             'mc_cpu.c',
             'mc_gpu.cu',
-            'mt19937ar.c']
+	    'grid.c',
+	    'mt19937ar.c']
 
 py = import('python').find_installation(pure: false)
 

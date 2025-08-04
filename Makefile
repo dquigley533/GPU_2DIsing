@@ -6,7 +6,7 @@ prefix     = $(HOME)
 bindir     = $(prefix)/bin
 
 # Define objects in dependency order
-OBJECTS   = mt19937ar.o gpu_tools.o mc_cpu.o mc_gpu.o io.o
+OBJECTS   = mt19937ar.o grid.o gpu_tools.o mc_cpu.o mc_gpu.o io.o
 
 CC    = gcc
 NVCC  = nvcc

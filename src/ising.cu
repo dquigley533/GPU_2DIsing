@@ -25,10 +25,13 @@ for gathering rare event statistics on nucleation during magnetisation reversal.
 extern "C" {
   #include "mc_cpu.h"
   #include "io.h"
+  #include "grid.h"
 }
+
 
 #include "mc_gpu.h"
 #include "gpu_tools.h"
+
 
 const bool run_gpu = true;      // Run using GPU
 const bool run_cpu = false;     // Run using CPU
@@ -97,37 +100,29 @@ int main (int argc, char *argv[]) {
 /*=================================
    Initialise simulations
   =================================*/ 
-  // Host copy of Ising grid configurations
-  int *ising_grids = (int *)malloc(L*L*ngrids*sizeof(int));
-  if (ising_grids==NULL){
-    fprintf(stderr,"Error allocating memory for Ising grids!\n");
-    exit(EXIT_FAILURE);
-  }
-  
-
-  int i;
-  int *grid_fate;  // stores pending(-1), reached B first (1) or reached A first (0)
   double pB;
 
-  if (itask==0) {  // counting nucleated samples over time
+  int *ising_grids; // array of LxLxngrids spins
+  int *grid_fate;   // stores pending(-1), reached B first (1) or reached A first (0)
+  
+  if (itask==0) {   // counting nucleated samples over time
 
-    // Initialise as spin down  
-    for (i=0;i<L*L*ngrids;i++) { ising_grids[i] = -1; }
-
+    // Initialise as 100% spin down for all grids
+    ising_grids = init_grids_uniform(L, ngrids, -1);
+    grid_fate = NULL ; // not used
+    
   } else if (itask==1) {
 
-    // Read from file
-    read_input_grid(L, ngrids, ising_grids);
+    // Read from gridinput.bin
+    ising_grids = init_grids_from_file(L, ngrids);
 
-    grid_fate = (int *)malloc(ngrids*sizeof(int));
-    if (grid_fate==NULL) {
-      printf("Error allocating memory for grid fates\n");
-      exit(EXIT_FAILURE);
-    }
-    for (i=0;i<ngrids;i++) { grid_fate[i] = -1; } // all pending
-
+    // Initialise states
+    grid_fate = init_fates(ngrids);
+    
   } else {
 
+    ising_grids = NULL;
+    grid_fate = NULL;
     printf("Error - unknown value of itask!");
     exit(EXIT_FAILURE);
 
