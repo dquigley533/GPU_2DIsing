@@ -12,9 +12,7 @@ CC    = gcc
 NVCC  = nvcc
 LD     = nvcc
 CFLAGS =  -O3 
-NVFLAGS = -O3 -gencode arch=compute_35,code=sm_35 \
-	          -gencode arch=compute_75,code=sm_75 \
-			  -gencode arch=compute_60,code=sm_60 --generate-line-info
+NVFLAGS = -O3 -gencode arch=compute_61,code=sm_61 --generate-line-info  #   Quadro P2000 in Telamon
 
 .PRECIOUS: %.o
 .PHONY:  clean
@@ -22,16 +20,16 @@ NVFLAGS = -O3 -gencode arch=compute_35,code=sm_35 \
 all : GPU_2DIsing
 
 %: %.o
-%.o: %.c %.h
-	$(CC) $(CFLAGS) -c -o $@ $<
+%.o: src/%.c include/%.h
+	$(CC) $(CFLAGS) -c -o $@ $< -Iinclude/
 
-%.o: %.cu %.h
-	$(NVCC) $(NVFLAGS) -c -o $@ $<
+%.o: src/%.cu include/%.h
+	$(NVCC) $(NVFLAGS) -c -o $@ $< -Iinclude/
 
 
-GPU_2DIsing :  $(OBJECTS) ising.cu
+GPU_2DIsing :  $(OBJECTS) src/ising.cu
 
-	$(LD) -o $(bindir)/GPU_2DIsing $(OBJECTS) ising.cu $(NVFLAGS) 
+	$(LD) -o $(bindir)/GPU_2DIsing $(OBJECTS) src/ising.cu $(NVFLAGS) -Iinclude/
 
 clean : 
 

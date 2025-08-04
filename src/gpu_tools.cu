@@ -3,9 +3,6 @@
 #include <stdio.h>
 #include "gpu_tools.h"
 
-cudaError_t err;  // cudaError_t is a type defined in cuda.h
-
-
 // Boilerplate error checking code borrowed from stackoverflow
 void gpuAssert(cudaError_t code, const char *file, int line, bool abort)
 {
@@ -21,8 +18,13 @@ void gpuInit(int deviceIndex){
 
     int idev, count;    
 
+    cudaError_t err;  // cudaError_t is a type defined in cuda.h
+    
     // Make sure we have a CUDA capable device to work with
     err = cudaGetDeviceCount(&count);
+
+    printf("Called cudaGetDeviceCount\n");
+    
     if ( (count==0) || (err!=cudaSuccess) ) {
         fprintf(stderr,"No CUDA supported devices are available in this system.\n");
         exit(EXIT_FAILURE);
