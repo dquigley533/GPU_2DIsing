@@ -6,7 +6,14 @@
 #include <curand_kernel.h>
 
 // Prototype for function which initialises gpu
-void gpuInit(int deviceIndex=-1);
+int gpuInitDevice(int deviceIndex=-1);
+
+// Function which copies model from host to device and initialises it
+void gpuInitGrid(int L, int ngrids, int threadsPerBlock, int *ising_grids, int** d_ising_grids, int** d_neighbour_list);
+
+// Function which initialised RNG on the GPU
+void gpuInitRand(int ngrids, int threadsPerBlock, unsigned long rngseed,  curandState** d_state);
+
 
 // Macro for error checking
 #define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
@@ -14,7 +21,7 @@ void gpuInit(int deviceIndex=-1);
 // Prototype for gpuAssert
 void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true);
 
-// Prototype for RNG initialisation
+// Prototype for RNG initialisation kernel
 __global__ void init_gpurand(unsigned long long seed, int ngrids, curandState *state);
 
 // For testing generation of random numbers on each thread

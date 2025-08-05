@@ -33,8 +33,8 @@ extern "C" {
 #include "gpu_tools.h"
 
 
-const bool run_gpu = true;      // Run using GPU
-const bool run_cpu = false;     // Run using CPU
+bool run_gpu = true;      // Run using GPU
+bool run_cpu = false;     // Run using CPU
 
 int main (int argc, char *argv[]) {
 
@@ -128,15 +128,6 @@ int main (int argc, char *argv[]) {
 
   }
 
-
-  // TODO - replace with configuration read from file
-
-  // Initialise host RNG
-  init_genrand(rngseed);
-
-  // Precompute acceptance probabilities for flip moves
-  preComputeProbs_cpu(beta, h);
-
   int *d_ising_grids;                    // Pointer to device grid configurations
   curandState *d_state;                  // Pointer to device RNG states
   int *d_neighbour_list;                 // Pointer to device neighbour lists
@@ -146,60 +137,26 @@ int main (int argc, char *argv[]) {
   sweeps_per_call = mag_output_int < grid_output_int ? mag_output_int : grid_output_int;
 
   if (run_gpu==true) {
+
+    // Initialise GPU device(s)
+    int igpu = gpuInitDevice(gpu_device); 
+    if (igpu==-1){
+      printf("Falling back to CPU\n");
+      run_cpu=true;
+      run_gpu=false;
+    } else {
     
-    gpuInit(gpu_device); // Initialise GPU device(s)
+      // Initialise model grid on GPU
+      gpuInitGrid(L, ngrids, threadsPerBlock, ising_grids, &d_ising_grids, &d_neighbour_list); 
 
-    // Allocate threads to thread blocks
-    blocksPerGrid = ngrids/threadsPerBlock;
-    if (ngrids%threadsPerBlock!=0) { blocksPerGrid += 1; }
+      // Iniialise RNG on GPU
+      gpuInitRand(ngrids, threadsPerBlock, rngseed, &d_state); 
+      
+      // Precompute acceptance probabilities for flip moves
+      preComputeProbs_gpu(beta, h);
 
-    // Device copy of Ising grid configurations
-    gpuErrchk( cudaMalloc(&d_ising_grids,L*L*ngrids*sizeof(int)) );
-
-    // Populate from host copy
-    gpuErrchk( cudaMemcpy(d_ising_grids,ising_grids,L*L*ngrids*sizeof(int),cudaMemcpyHostToDevice) );
-
-    // Initialise GPU RNG
-    gpuErrchk (cudaMalloc((void **)&d_state, ngrids*sizeof(curandState)) );
-    unsigned long long gpuseed = (unsigned long long)rngseed;
-    init_gpurand<<<blocksPerGrid,threadsPerBlock>>>(gpuseed, ngrids, d_state);
-    gpuErrchk( cudaPeekAtLastError() );
-    gpuErrchk( cudaDeviceSynchronize() );
-
-    fprintf(stderr, "threadsPerBlock = %d, blocksPerGrid = %d\n",threadsPerBlock, blocksPerGrid);
-
-    // Precompute acceptance probabilities for flip moves
-    preComputeProbs_gpu(beta, h);
-
-    // Neighbours
-    gpuErrchk (cudaMalloc((void **)&d_neighbour_list, L*L*4*sizeof(int)) );
-    preComputeNeighbours_gpu(L, d_ising_grids, d_neighbour_list);
-
-    // Test CUDA RNG (DEBUG)
-    /*
-    float   *testrnd = (float *)malloc(ngrids*sizeof(float));
-    float *d_testrnd;
-    gpuErrchk( cudaMalloc(&d_testrnd, ngrids*sizeof(float)) );
-
-    int trial;
-    for (trial=0;trial<10;trial++){
-
-      populate_random<<<blocksPerGrid,threadsPerBlock>>>(ngrids, d_testrnd, d_state);
-      gpuErrchk( cudaPeekAtLastError() );
-      gpuErrchk( cudaDeviceSynchronize() );
-      gpuErrchk( cudaMemcpy(testrnd, d_testrnd, ngrids*sizeof(float), cudaMemcpyDeviceToHost) );
-
-      for (i=0;i<ngrids;i++){
-        printf("Random number on grid %d : %12.4f\n",i,testrnd[i]);
-      }
-  
-  }
-
-    free(testrnd);
-    cudaFree(d_testrnd);
-    exit(EXIT_SUCCESS);
-    */
-
+    }
+    
   }
 
 /*=================================
@@ -213,6 +170,13 @@ int main (int argc, char *argv[]) {
 
 
   if (run_cpu==true) {
+
+
+    // Initialise host RNG
+    init_genrand(rngseed);
+
+    // Precompute acceptance probabilities for flip moves
+    preComputeProbs_cpu(beta, h);
 
     // Magnetisation of each grid
     double *magnetisation = (double *)malloc(ngrids*sizeof(double));
@@ -316,6 +280,12 @@ int main (int argc, char *argv[]) {
     gpuErrchk( cudaStreamCreate(&stream2) );
 
 
+    // Allocate threads to thread blocks                                                         
+    blocksPerGrid = ngrids/threadsPerBlock;
+    if (ngrids%threadsPerBlock!=0) { blocksPerGrid += 1; }      
+      
+
+    
     t1 = clock();  // Start Timer
 
     isweep = 0;

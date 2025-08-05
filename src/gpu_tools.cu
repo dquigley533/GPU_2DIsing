@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include "gpu_tools.h"
+#include "mc_gpu.h"
 
 // Boilerplate error checking code borrowed from stackoverflow
 void gpuAssert(cudaError_t code, const char *file, int line, bool abort)
@@ -14,7 +15,7 @@ void gpuAssert(cudaError_t code, const char *file, int line, bool abort)
 }
 
 // Initialisation 
-void gpuInit(int deviceIndex){
+int gpuInitDevice(int deviceIndex){
 
     int idev, count;    
 
@@ -27,7 +28,7 @@ void gpuInit(int deviceIndex){
     
     if ( (count==0) || (err!=cudaSuccess) ) {
         fprintf(stderr,"No CUDA supported devices are available in this system.\n");
-        exit(EXIT_FAILURE);
+        return -1;
     } else {
         fprintf(stderr,"Found %d CUDA devices in this system\n",count);
     }
@@ -54,6 +55,8 @@ void gpuInit(int deviceIndex){
         fprintf(stderr,"Max SHMEM per block : %ld KB\n",prop.sharedMemPerBlock/1024);
         //fprintf(stderr,"Warp size           : %d\n",prop.warpSize);
         //fprintf(stderr,"Global DRAM         : %ld\n",prop.totalGlobalMem);
+	fprintf(stderr,"Recommended ngrids  : %d\n", 4*prop.warpSize*prop.multiProcessorCount);
+	
         fprintf(stderr,"\n");
 
     }
@@ -67,21 +70,22 @@ void gpuInit(int deviceIndex){
     gpuErrchk( cudaGetDevice(&idev ) );
     fprintf(stderr,"Using CUDA device : %d\n",idev);
 
+    return 0;
+    
 }
 
 
-__global__ void populate_random(int length, float *rnd_array, curandStatePhilox4_32_10_t *state){
-
+__global__ void populate_random(int length, float *rnd_array, curandState *state){
 
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
     if (idx < length){
 
         // 4 random numbers
-        float4 rnd = curand_uniform4(&state[idx]);
+        float rnd = curand_uniform(&state[idx]);
 
         // use one of these
-        rnd_array[idx] = rnd.z;
+        rnd_array[idx] = rnd;
 
     }       
 
@@ -110,3 +114,68 @@ __global__ void init_gpurand(unsigned long long seed, int ngrids, curandState *s
 
 
   }
+
+
+void gpuInitGrid(int L, int ngrids, int threadsPerBlock, int* ising_grids, int** d_ising_grids, int** d_neighbour_list){
+
+    // Allocate threads to thread blocks
+    int blocksPerGrid = ngrids/threadsPerBlock;
+    if (ngrids%threadsPerBlock!=0) { blocksPerGrid += 1; }
+
+    // Device copy of Ising grid configurations
+    gpuErrchk( cudaMalloc(d_ising_grids,L*L*ngrids*sizeof(int)) );
+
+    // Populate from host copy
+    gpuErrchk( cudaMemcpy(*d_ising_grids,ising_grids,L*L*ngrids*sizeof(int),cudaMemcpyHostToDevice) );
+
+    // Neighbours
+    gpuErrchk (cudaMalloc((void **)d_neighbour_list, L*L*4*sizeof(int)) );
+    preComputeNeighbours_gpu(L, *d_ising_grids, *d_neighbour_list);
+
+}
+
+
+void gpuInitRand(int ngrids, int threadsPerBlock, unsigned long rngseed, curandState** d_state){
+
+
+    // Allocate threads to thread blocks
+    int blocksPerGrid = ngrids/threadsPerBlock;
+    if (ngrids%threadsPerBlock!=0) { blocksPerGrid += 1; }
+  
+    // Initialise GPU RNG
+    gpuErrchk (cudaMalloc((void **)d_state, ngrids*sizeof(curandState)) );
+    unsigned long long gpuseed = (unsigned long long)rngseed;
+    init_gpurand<<<blocksPerGrid,threadsPerBlock>>>(gpuseed, ngrids, *d_state);
+    gpuErrchk( cudaPeekAtLastError() );
+    gpuErrchk( cudaDeviceSynchronize() );
+
+    // Test CUDA RNG (DEBUG)
+    
+    /*
+    float   *testrnd = (float *)malloc(ngrids*sizeof(float));
+    float *d_testrnd;
+    gpuErrchk( cudaMalloc(&d_testrnd, ngrids*sizeof(float)) );
+
+    int trial;
+    for (trial=0;trial<10;trial++){
+
+      populate_random<<<blocksPerGrid,threadsPerBlock>>>(ngrids, d_testrnd, *d_state);
+      gpuErrchk( cudaPeekAtLastError() );
+      gpuErrchk( cudaDeviceSynchronize() );
+      gpuErrchk( cudaMemcpy(testrnd, d_testrnd, ngrids*sizeof(float), cudaMemcpyDeviceToHost) );
+
+      int i;
+      for (i=0;i<ngrids;i++){
+        printf("Random number on grid %d : %12.4f\n",i,testrnd[i]);
+      }
+  
+    }
+
+    free(testrnd);
+    cudaFree(d_testrnd);
+    exit(EXIT_SUCCESS);
+    */
+
+}
+
+		  
