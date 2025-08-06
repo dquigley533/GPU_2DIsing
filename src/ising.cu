@@ -28,8 +28,8 @@ extern "C" {
 #include "gpu_tools.h"
 
 
-bool run_gpu = true;      // Run using GPU
-bool run_cpu = false;     // Run using CPU
+bool run_gpu = false;      // Run using GPU
+bool run_cpu = true;     // Run using CPU
 
 int main (int argc, char *argv[]) {
 
@@ -147,7 +147,12 @@ int main (int argc, char *argv[]) {
     // Precompute acceptance probabilities for flip moves
     preComputeProbs_cpu(beta, h);
 
-    float result = mc_driver_cpu(L, ngrids, ising_grids, beta, h, grid_fate, tot_nsweeps, mag_output_int, grid_output_int, itask, up_threshold, dn_threshold);
+    mc_grids_t grids; grids.L = L; grids.ngrids = ngrids; grids.ising_grids = ising_grids;
+    mc_sampler_t samples; samples.tot_nsweeps = tot_nsweeps; samples.mag_output_int = mag_output_int; samples.grid_output_int = grid_output_int;
+    mc_function_t calc; calc.itask = itask; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold;
+        
+    // Perform the MC simulations
+    float result = mc_driver_cpu(grids, beta, h, grid_fate, samples, calc);
     
   }
 

@@ -99,13 +99,26 @@ void compute_magnetisation_cpu(int L, int *ising_grids, int grid_index, double *
 
 }
 
-float mc_driver_cpu(int L, int ngrids, int* ising_grids, double beta, double h, int* grid_fate, int tot_nsweeps, int mag_output_int, int grid_output_int, int itask, double up_thr, double dn_thr){
+float mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_sampler_t samples, mc_function_t calc){
 
     clock_t t1,t2;  // For measuring time taken
     int isweep;     // MC sweep loop counter
     int igrid;      // counter for loop over replicas
 
+    // Unpack structs
+    int L = grids.L;
+    int ngrids = grids.ngrids;
+    int *ising_grids = grids.ising_grids;
 
+    int tot_nsweeps = samples.tot_nsweeps;
+    int mag_output_int = samples.mag_output_int;
+    int grid_output_int = samples.grid_output_int;
+
+    int itask = calc.itask;
+    double dn_thr = calc.dn_thr;
+    double up_thr = calc.up_thr;
+
+    
     // How many sweeps to run in each call to mc_sweeps_cpu
     int sweeps_per_call;
     sweeps_per_call = mag_output_int < grid_output_int ? mag_output_int : grid_output_int;

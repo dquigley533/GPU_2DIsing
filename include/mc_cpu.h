@@ -2,6 +2,24 @@
 #include <math.h>
 #include "mt19937ar.h"   // External RNG for CPU reference implementation
 
+typedef struct {
+  int  L;                // Size of each L x L grid
+  int  ngrids;           // Number of grids
+  int* ising_grids;      // Pointer to first entry in first grid
+} mc_grids_t;
+
+typedef struct {
+  int tot_nsweeps;     // Max number of MC sweeps to perform 
+  int mag_output_int;  // Interval at which to calculate magnetisation
+  int grid_output_int; // Interval at which to write grids to file
+} mc_sampler_t;
+
+typedef struct {
+  int itask;     // What to calculate?
+  double dn_thr; // Magnetisation below which lies the down macrostate
+  double up_thr; // Magnetisation above which lies the up macrostate
+} mc_function_t;
+
 
 // pre-compute acceptance probabilities for spin flips
 void preComputeProbs_cpu(double beta, double h);
@@ -13,4 +31,4 @@ void mc_sweep_cpu(int L, int *ising_grids, int grid_index, double beta, double h
 void compute_magnetisation_cpu(int L, int *ising_grids, int grid_index, double *magnetisation);
 
 // Main driver routine
-float mc_driver_cpu(int L, int ngrids, int* ising_grids, double beta, double h, int* grid_fate, int tot_nsweeps, int mag_output_int, int grid_output_int, int itask, double up_thr, double dn_thr);
+float mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_sampler_t samples, mc_function_t calc);
