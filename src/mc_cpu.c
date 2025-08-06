@@ -1,4 +1,7 @@
+#include <stdio.h>
+#include <time.h>
 #include "mc_cpu.h"
+#include "io.h"
 
 double Pacc[20];         // Cache of acceptance probabilities
 
@@ -94,4 +97,101 @@ void compute_magnetisation_cpu(int L, int *ising_grids, int grid_index, double *
 
   return;
 
+}
+
+float mc_driver_cpu(int L, int ngrids, int* ising_grids, double beta, double h, int* grid_fate, int tot_nsweeps, int mag_output_int, int grid_output_int, int itask, double up_thr, double dn_thr){
+
+    clock_t t1,t2;  // For measuring time taken
+    int isweep;     // MC sweep loop counter
+    int igrid;      // counter for loop over replicas
+
+
+    // How many sweeps to run in each call to mc_sweeps_cpu
+    int sweeps_per_call;
+    sweeps_per_call = mag_output_int < grid_output_int ? mag_output_int : grid_output_int;
+    
+    // Magnetisation of each grid
+    double *magnetisation = (double *)malloc(ngrids*sizeof(double));
+    if (magnetisation==NULL){
+      fprintf(stderr,"Error allocating magnetisation array!\n");
+      exit(EXIT_FAILURE);
+    }
+
+    // result - either fraction of nucleated trajectories (itask=0) or comittor (itask=1)
+    float result;
+    
+    t1 = clock();  // Start timer
+
+    isweep = 0;
+    while (isweep < tot_nsweeps){
+
+      // Output grids to file
+      if (isweep%grid_output_int==0){
+        write_ising_grids(L, ngrids, ising_grids, isweep);  
+      }
+
+      // Report magnetisations
+      if (isweep%mag_output_int==0){
+        for (igrid=0;igrid<ngrids;igrid++){
+          compute_magnetisation_cpu(L, ising_grids, igrid, magnetisation);
+          //printf("Magnetisation of grid %d at sweep %d = %8.4f\n",igrid, isweep, magnetisation[igrid]);
+        }
+        if ( itask == 0 ) { // Report how many samples have nucleated.
+          int nnuc = 0;
+          for (igrid=0;igrid<ngrids;igrid++){
+            if ( magnetisation[igrid] > up_thr ) nnuc++;
+          }
+          printf("%10d  %12.6f\n",isweep, (double)nnuc/(double)ngrids);
+	  result = (float)((double)nnuc/(double)ngrids);
+	  if (nnuc==ngrids) break; // Stop if everyone has nucleated
+	  
+        } else if ( itask == 1 ){
+
+          // Statistics on fate of trajectories
+          int nA=0, nB=0;
+          for (igrid=0;igrid<ngrids;igrid++){
+            //printf("grid_fate[%d] = %d\n",igrid, grid_fate[igrid]);
+            if (grid_fate[igrid]==0 ) {
+              nA++;
+            } else if (grid_fate[igrid]==1 ) {
+              nB++;
+            } else {
+              if ( magnetisation[igrid] > up_thr ){
+                grid_fate[igrid] = 1;
+                nB++;
+              } else if (magnetisation[igrid] < dn_thr ){
+                grid_fate[igrid] = 0;
+                nA++;
+              }
+            } // fate
+          } //grids
+
+          // Monitor progress
+          result = (double)nB/(double)(nA+nB);
+          printf("\r Sweep : %10d, Reached m = %6.2f : %4d , Reached m = %6.2f : %4d , Unresolved : %4d, pB = %10.6f",
+		 isweep, dn_thr, nA, up_thr, nB, ngrids-nA-nB, result);
+          fflush(stdout);
+          if (nA + nB == ngrids) break; // all fates resolved
+        } // task
+      } 
+
+      // MC Sweep - CPU
+      for (igrid=0;igrid<ngrids;igrid++) {
+        mc_sweep_cpu(L, ising_grids, igrid, beta, h, sweeps_per_call);
+      }
+      isweep += sweeps_per_call;
+
+    }
+      
+    t2 = clock();  // Stop Timer
+
+    printf("\n# Time taken on CPU = %f seconds\n",(double)(t2-t1)/(double)CLOCKS_PER_SEC);
+
+    if (itask==1) { printf("pB estimate : %10.6f\n",result); }; 
+
+    // Release memory
+    free(magnetisation);  
+
+    return result;
+  
 }

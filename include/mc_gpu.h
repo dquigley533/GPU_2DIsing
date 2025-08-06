@@ -26,6 +26,11 @@ __global__ void mc_sweep_gpu_bitmap64(const int L, curandState *state, const int
 // Compute magnetisation on the GPU
 __global__ void compute_magnetisation_gpu(const int L, const int ngrids, int *d_ising_grids, float *d_magnetisation);
 
+// Main driver function on GPU
+float mc_driver_gpu(int L, int ngrids, int* ising_grids, int* d_ising_grids, int* d_neighbour_list, double beta, double h, int* grid_fate, int tot_nsweeps, int mag_output_int, int grid_output_int, int itask, double up_thr, double dn_thr, \
+		    curandState *d_state, int threadsPerBlock, int gpu_method);
+
+
 // Neighbour list squeezed into constant memory. Use of uint16_t limts MAXL to be 
 // 128, or would need to move to 2D indexing.
 //__constant__ uint16_t dc_neighbour_list[MAXL*MAXL*4];

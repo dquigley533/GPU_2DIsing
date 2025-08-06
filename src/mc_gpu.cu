@@ -1,8 +1,13 @@
 // -*- mode: C -*-
 
-#include "mc_gpu.h"
-#include <stdio.h>
 
+#include <stdio.h>
+#include "mc_gpu.h"
+
+extern "C" {
+   #include "io.h"
+}
+  
 // Cache of acceptance probabilities 
 __constant__ float d_Pacc[20];   // gpu constant memory
 
@@ -438,5 +443,163 @@ __global__ void compute_magnetisation_gpu(const int L, const int ngrids, int *d_
   }
 
   return;
+
+}
+
+
+float mc_driver_gpu(int L, int ngrids, int* ising_grids, int* d_ising_grids, int* d_neighbour_list, double beta, double h, int* grid_fate, int tot_nsweeps, int mag_output_int, int grid_output_int, int itask, double up_thr, double dn_thr, curandState *d_state, int threadsPerBlock, int gpu_method){
+
+    clock_t t1,t2;  // For measuring time taken
+    int isweep;     // MC sweep loop counter
+    int igrid;      // counter for loop over replicas
+
+    float result;
+
+    // Host copy of magnetisation
+    float *magnetisation = (float *)malloc(ngrids*sizeof(float));
+    if (magnetisation==NULL){
+      fprintf(stderr,"Error allocating magnetisation host array!\n");
+      exit(EXIT_FAILURE);
+    }
+
+    // Device copy of magnetisation
+    float *d_magnetisation;
+    gpuErrchk( cudaMalloc(&d_magnetisation,ngrids*sizeof(float)) );
+
+    // Streams
+    cudaStream_t stream1;
+    gpuErrchk( cudaStreamCreate(&stream1) );
+
+    cudaStream_t stream2;
+    gpuErrchk( cudaStreamCreate(&stream2) );
+
+
+    // Allocate threads to thread blocks                                                         
+    int blocksPerGrid = ngrids/threadsPerBlock;
+    if (ngrids%threadsPerBlock!=0) { blocksPerGrid += 1; }      
+      
+
+    // How many sweeps to run in each call
+    int sweeps_per_call;
+    sweeps_per_call = mag_output_int < grid_output_int ? mag_output_int : grid_output_int;
+
+    t1 = clock();  // Start Timer
+
+    isweep = 0;
+    while(isweep < tot_nsweeps){
+
+
+
+      // Output grids to file
+      if (isweep%grid_output_int==0){
+        // Asynchronous - can happen while magnetisation is being computed in stream 2
+        gpuErrchk( cudaMemcpyAsync(ising_grids,d_ising_grids,L*L*ngrids*sizeof(int),cudaMemcpyDeviceToHost,stream1) );
+      }
+
+      // Can compute manetisation while grids are copying
+      if (isweep%mag_output_int==0){
+        compute_magnetisation_gpu<<<blocksPerGrid, threadsPerBlock, 0, stream2>>>(L, ngrids, d_ising_grids, d_magnetisation);    
+        gpuErrchk( cudaMemcpyAsync(magnetisation,d_magnetisation,ngrids*sizeof(float),cudaMemcpyDeviceToHost, stream2) );
+      } 
+
+      // MC Sweep - GPU
+      gpuErrchk( cudaStreamSynchronize(stream1) ); // Make sure copy completed before making changes
+
+      if (gpu_method==0){
+        mc_sweep_gpu<<<blocksPerGrid,threadsPerBlock,0,stream1>>>(L,d_state,ngrids,d_ising_grids,d_neighbour_list, (float)beta,(float)h,sweeps_per_call);
+      } else if (gpu_method==1){
+          size_t shmem_size = L*L*threadsPerBlock*sizeof(uint8_t)/8; // number of bytes needed to store grid as bits
+          mc_sweep_gpu_bitrep<<<blocksPerGrid,threadsPerBlock,shmem_size,stream1>>>(L,d_state,ngrids,d_ising_grids, d_neighbour_list, (float)beta,(float)h,sweeps_per_call);
+      } else if (gpu_method==2){
+          size_t shmem_size = L*L*threadsPerBlock*sizeof(uint8_t)/8; // number of bytes needed to store grid as bits
+          if (threadsPerBlock==32){
+            mc_sweep_gpu_bitmap32<<<blocksPerGrid,threadsPerBlock,shmem_size,stream1>>>(L,d_state,ngrids,d_ising_grids, d_neighbour_list, (float)beta,(float)h,sweeps_per_call);
+          } else if (threadsPerBlock==64){
+            mc_sweep_gpu_bitmap64<<<blocksPerGrid,threadsPerBlock,shmem_size,stream1>>>(L,d_state,ngrids,d_ising_grids, d_neighbour_list, (float)beta,(float)h,sweeps_per_call);
+          } else {
+            printf("Invalid threadsPerBlock for gpu_method=2\n");
+            exit(EXIT_FAILURE);
+          } 
+      } else {
+        printf("Unknown gpu_method in ising.cu\n");
+        exit(EXIT_FAILURE);
+      }
+      
+      // Writing of the grids can be happening on the host while the device runs the mc_sweep kernel
+      if (isweep%grid_output_int==0){
+        write_ising_grids(L, ngrids, ising_grids, isweep);  
+      }
+
+      // Write and report magnetisation - can also be happening while the device runs the mc_sweep kernel
+      if (isweep%mag_output_int==0){
+        gpuErrchk( cudaStreamSynchronize(stream2) );  // Wait for copy to complete
+        //for (igrid=0;igrid<ngrids;igrid++){
+        //  printf("    %4d     %10d      %8.6f\n",igrid, isweep, magnetisation[igrid]);
+        //}
+        if ( itask == 0 ) { // Report how many samples have nucleated.
+          int nnuc = 0;
+          for (igrid=0;igrid<ngrids;igrid++){
+            if ( magnetisation[igrid] > up_thr ) nnuc++;
+          }
+	  result = (float)((double)nnuc/(double)ngrids);
+          printf("%10d  %12.6f\n",isweep, (double)nnuc/(double)ngrids);
+          if (nnuc==ngrids) break; // Stop if everyone has nucleated
+        } else if ( itask == 1 ){
+
+            // Statistics on fate of trajectories
+            int nA=0, nB=0;
+            for (igrid=0;igrid<ngrids;igrid++){
+              if (grid_fate[igrid]==0 ) {
+                nA++;
+              } else if (grid_fate[igrid]==1 ) {
+                nB++;
+              } else {
+                if ( magnetisation[igrid] > up_thr ){
+                  grid_fate[igrid] = 1;
+                  nB++;
+                } else if (magnetisation[igrid] < dn_thr ){
+                  grid_fate[igrid] = 0;
+                  nA++;
+                }
+              } // fate
+            } //grids
+
+            // Monitor progress
+            result = (double)nB/(double)(nA+nB);
+            printf("\r Sweep : %10d, Reached m = %6.2f : %4d , Reached m = %6.2f : %4d , Unresolved : %4d, pB = %10.6f",
+            isweep, dn_thr, nA, up_thr, nB, ngrids-nA-nB,result );
+            fflush(stdout);
+            if (nA + nB == ngrids) break; // all fates resolved
+        
+        } // task 
+      }
+
+      // Increment isweep
+      isweep += sweeps_per_call;
+
+      // Make sure all kernels updating the grids are finished before starting magnetisation calc
+      gpuErrchk( cudaStreamSynchronize(stream1) );
+      gpuErrchk( cudaPeekAtLastError() );
+
+    }
+
+    // Ensure all threads finished before stopping timer
+    gpuErrchk( cudaDeviceSynchronize() );
+
+    t2 = clock();
+
+    printf("\n# Time taken on GPU = %f seconds\n",(double)(t2-t1)/(double)CLOCKS_PER_SEC);
+    if (itask==1) { printf("pB estimate : %10.6f\n", result); }
+
+    // Destroy streams
+    gpuErrchk( cudaStreamDestroy(stream1) );
+    gpuErrchk( cudaStreamDestroy(stream2) );
+
+
+    // Free magnetisation arrays
+    free(magnetisation);
+    gpuErrchk( cudaFree(d_magnetisation) );
+
+    return result;
 
 }
