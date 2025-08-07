@@ -3,11 +3,25 @@
 #include <curand_kernel.h>
 #include <float.h>
 
+extern "C" {
+#include "mc_cpu.h"       // Extend this for GPU version
+}
+
 #include "gpu_tools.h"
 
+typedef struct {
+  int L;
+  int ngrids;
+  int* ising_grids;
+  int* d_ising_grids;     // Device copy of ising_Grids
+  int* d_neighbour_list;  // Neighbour list array
+} mc_gpu_grids_t;
 
-
-
+typedef struct {
+  curandState* d_state;   // GPU RNG state
+  int threadsPerBlock;    // Threads to launch per thread block
+  int gpu_method;         // GPU method to use
+} gpu_run_t;
 
 
 // pre-compute acceptance probabilities for spin flips
@@ -27,8 +41,7 @@ __global__ void mc_sweep_gpu_bitmap64(const int L, curandState *state, const int
 __global__ void compute_magnetisation_gpu(const int L, const int ngrids, int *d_ising_grids, float *d_magnetisation);
 
 // Main driver function on GPU
-float mc_driver_gpu(int L, int ngrids, int* ising_grids, int* d_ising_grids, int* d_neighbour_list, double beta, double h, int* grid_fate, int tot_nsweeps, int mag_output_int, int grid_output_int, int itask, double up_thr, double dn_thr, \
-		    curandState *d_state, int threadsPerBlock, int gpu_method);
+float mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, mc_sampler_t samples, mc_function_t calc, gpu_run_t gpu_state);
 
 
 // Neighbour list squeezed into constant memory. Use of uint16_t limts MAXL to be 

@@ -447,7 +447,7 @@ __global__ void compute_magnetisation_gpu(const int L, const int ngrids, int *d_
 }
 
 
-float mc_driver_gpu(int L, int ngrids, int* ising_grids, int* d_ising_grids, int* d_neighbour_list, double beta, double h, int* grid_fate, int tot_nsweeps, int mag_output_int, int grid_output_int, int itask, double up_thr, double dn_thr, curandState *d_state, int threadsPerBlock, int gpu_method){
+float mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, mc_sampler_t samples, mc_function_t calc, gpu_run_t gpu_state){
 
     clock_t t1,t2;  // For measuring time taken
     int isweep;     // MC sweep loop counter
@@ -455,6 +455,26 @@ float mc_driver_gpu(int L, int ngrids, int* ising_grids, int* d_ising_grids, int
 
     float result;
 
+    // Unpack structs
+    int L = grids.L;
+    int ngrids = grids.ngrids;
+    int *ising_grids = grids.ising_grids;
+    int *d_ising_grids = grids.d_ising_grids;
+    int *d_neighbour_list = grids.d_neighbour_list;
+    
+    int tot_nsweeps = samples.tot_nsweeps;
+    int mag_output_int = samples.mag_output_int;
+    int grid_output_int = samples.grid_output_int;
+
+    int itask = calc.itask;
+    double dn_thr = calc.dn_thr;
+    double up_thr = calc.up_thr;
+
+    curandState* d_state = gpu_state.d_state;
+    int threadsPerBlock = gpu_state.threadsPerBlock;
+    int gpu_method = gpu_state.gpu_method;
+
+    
     // Host copy of magnetisation
     float *magnetisation = (float *)malloc(ngrids*sizeof(float));
     if (magnetisation==NULL){
