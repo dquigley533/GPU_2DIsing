@@ -84,7 +84,7 @@ void mc_sweep_cpu(int L, int *ising_grids, int grid_index, double beta, double h
 
 }
 
-void compute_magnetisation_cpu(int L, int *ising_grids, int grid_index, double *magnetisation){
+void compute_magnetisation_cpu(int L, int *ising_grids, int grid_index, float *magnetisation){
 
   // Pointer to the current Ising grid
   int *loc_grid = &ising_grids[grid_index*L*L];
@@ -93,13 +93,13 @@ void compute_magnetisation_cpu(int L, int *ising_grids, int grid_index, double *
 
     int i;
     for (i=0;i<L*L;i++) { m += (double)loc_grid[i]; }
-    magnetisation[grid_index] = m/(double)(L*L);
+    magnetisation[grid_index] = (float)(m/(double)(L*L));
 
   return;
 
 }
 
-float mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_sampler_t samples, mc_function_t calc){
+float mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_sampler_t samples, mc_function_t calc, GridOutputFunc outfunc){
 
     clock_t t1,t2;  // For measuring time taken
     int isweep;     // MC sweep loop counter
@@ -124,7 +124,7 @@ float mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_
     sweeps_per_call = mag_output_int < grid_output_int ? mag_output_int : grid_output_int;
     
     // Magnetisation of each grid
-    double *magnetisation = (double *)malloc(ngrids*sizeof(double));
+    float *magnetisation = (float *)malloc(ngrids*sizeof(float));
     if (magnetisation==NULL){
       fprintf(stderr,"Error allocating magnetisation array!\n");
       exit(EXIT_FAILURE);
@@ -140,7 +140,7 @@ float mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_
 
       // Output grids to file
       if (isweep%grid_output_int==0){
-        write_ising_grids(L, ngrids, ising_grids, isweep);  
+        outfunc(L, ngrids, ising_grids, isweep, magnetisation);  
       }
 
       // Report magnetisations

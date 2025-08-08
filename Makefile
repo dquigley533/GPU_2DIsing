@@ -12,7 +12,7 @@ CC    = gcc
 NVCC  = nvcc
 LD     = nvcc
 CFLAGS =  -O3 
-NVFLAGS = -O3 -gencode arch=compute_61,code=sm_61 --generate-line-info  #   Quadro P2000 in Telamon
+NVFLAGS = -O3 -gencode arch=compute_61,code=sm_61 --generate-line-info  -Wno-deprecated-gpu-targets #   Quadro P2000 in Telamon
 
 .PRECIOUS: %.o
 .PHONY:  clean

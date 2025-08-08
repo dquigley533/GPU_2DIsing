@@ -24,8 +24,6 @@ int gpuInitDevice(int deviceIndex){
     // Make sure we have a CUDA capable device to work with
     err = cudaGetDeviceCount(&count);
 
-    printf("Called cudaGetDeviceCount\n");
-    
     if ( (count==0) || (err!=cudaSuccess) ) {
         fprintf(stderr,"No CUDA supported devices are available in this system.\n");
         return -1;

@@ -64,7 +64,7 @@ void read_input_grid(int L, int ngrids, int *ising_grids){
 
 }
 
-void write_ising_grids(int L, int ngrids, int *ising_grids, int isweep){
+int write_ising_grids(int L, int ngrids, int *ising_grids, int isweep, float *magnetisation){
 
     // Set filename
     char filename[15];
@@ -124,5 +124,7 @@ void write_ising_grids(int L, int ngrids, int *ising_grids, int isweep){
 
     // close file
     fclose(ptr);
-  
+
+    return 0; //Success
+    
 }

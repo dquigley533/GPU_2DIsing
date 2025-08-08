@@ -21,6 +21,10 @@ typedef struct {
 } mc_function_t;
 
 
+
+// Function typedef obeyed by functions which output grids
+typedef int (*GridOutputFunc)(int L, int ngrids, int* grid_data, int isweep, float* magnetisation);
+
 // pre-compute acceptance probabilities for spin flips
 void preComputeProbs_cpu(double beta, double h);
 
@@ -28,7 +32,7 @@ void preComputeProbs_cpu(double beta, double h);
 void mc_sweep_cpu(int L, int *ising_grids, int grid_index, double beta, double h, int nsweeps);
 
 // Compute magnetisation on the cpu
-void compute_magnetisation_cpu(int L, int *ising_grids, int grid_index, double *magnetisation);
+void compute_magnetisation_cpu(int L, int *ising_grids, int grid_index, float *magnetisation);
 
 // Main driver routine
-float mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_sampler_t samples, mc_function_t calc);
+float mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_sampler_t samples, mc_function_t calc, GridOutputFunc func);

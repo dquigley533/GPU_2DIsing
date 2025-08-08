@@ -447,7 +447,7 @@ __global__ void compute_magnetisation_gpu(const int L, const int ngrids, int *d_
 }
 
 
-float mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, mc_sampler_t samples, mc_function_t calc, gpu_run_t gpu_state){
+float mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, mc_sampler_t samples, mc_function_t calc, gpu_run_t gpu_state, GridOutputFunc outfunc){
 
     clock_t t1,t2;  // For measuring time taken
     int isweep;     // MC sweep loop counter
@@ -547,7 +547,7 @@ float mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate,
       
       // Writing of the grids can be happening on the host while the device runs the mc_sweep kernel
       if (isweep%grid_output_int==0){
-        write_ising_grids(L, ngrids, ising_grids, isweep);  
+        outfunc(L, ngrids, ising_grids, isweep, magnetisation);  
       }
 
       // Write and report magnetisation - can also be happening while the device runs the mc_sweep kernel

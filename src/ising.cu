@@ -150,8 +150,8 @@ int main (int argc, char *argv[]) {
     mc_function_t calc; calc.itask = itask; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold;
         
     // Perform the MC simulations
-    float result = mc_driver_cpu(grids, beta, h, grid_fate, samples, calc);
-    
+    float result = mc_driver_cpu(grids, beta, h, grid_fate, samples, calc, write_ising_grids);
+
   }
 
 /*=================================
@@ -181,7 +181,7 @@ int main (int argc, char *argv[]) {
     mc_function_t calc; calc.itask = itask; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold;
     gpu_run_t gpu_state; gpu_state.d_state = d_state;  gpu_state.threadsPerBlock = threadsPerBlock; gpu_state.gpu_method = gpu_method;
 
-    float result = mc_driver_gpu(grids, beta, h, grid_fate, samples, calc, gpu_state);
+    float result = mc_driver_gpu(grids, beta, h, grid_fate, samples, calc, gpu_state, write_ising_grids);
     
     // Free device arrays
     gpuErrchk( cudaFree(d_state) );
