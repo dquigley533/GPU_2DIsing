@@ -6,6 +6,7 @@
 #include <time.h>  
 #include <float.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 #include <numpy/arrayobject.h>
 #include <Python.h>
@@ -23,6 +24,10 @@ bool run_cpu = false;   // Run using CPU
 
 //const int L=64;  /* Size of 2D Ising grid to simulate */
 
+/* Pointer to memory in which we might store copies of all grids 
+   generated to pass back to Python. 8 bit integers to save RAM */
+int8_t* grid_history = NULL;
+int ihist = 0;                 // Current snapshot number
 
 static PyObject* reset_grids_list(PyObject* self, PyObject* args) {
     PyObject *module, *new_list;
@@ -92,56 +97,71 @@ PyObject* populate_grids_list(int L, int ngrids, int* grid_data) {
 
 int append_grids_list(int L, int ngrids, int* grid_data, int isweep, float* magnetisation) {
 
-  PyObject *module, *list;
-  
-  // Import the module to get the list
-  module = PyImport_ImportModule("gasp");
-  if (!module) return -1;
+  npy_intp dims[2] = {L, L};
 
-  list = PyObject_GetAttrString(module, "grids");
-  Py_DECREF(module);
-  if (!list) return -1;
+  // Create a Python list to hold the NumPy arrays
+  PyObject* grid_list = PyList_New(ngrids);
+  if (!grid_list) return -1;
 
-  // Create a new empty list
-  PyObject *new_list = PyList_New(0);
-  if (!new_list) {
-    Py_DECREF(module);
-    return -1;
-  }
+
+  int snapsize = ngrids*L*L;
   
-  for (int g = 0; g < ngrids; ++g) {
-    npy_intp dims[2] = {L, L};
-    PyObject* array = PyArray_SimpleNew(2, dims, NPY_INT32);
+  for (int i = 0; i < ngrids; ++i) {
+
+
+    // Copy current grid data into history array. Not using memcpy as there's a cast involved.
+    int isite;
+    for (isite=0;isite<L*L;++isite){
+      grid_history[snapsize*ihist+i*L*L+isite] = (int8_t)grid_data[i*L*L+isite];
+    }
+    
+    // Create a NumPy array from the data. This just wraps the grid_history_array
+    PyObject* array = PyArray_SimpleNewFromData(2, dims, NPY_INT8, (int8_t*)(grid_history + ihist*snapsize + i * L * L));
+
     if (!array) {
-      Py_DECREF(list);
-      Py_DECREF(new_list);
+      Py_DECREF(grid_list);
       return -1;
     }
+
+
+    // Set the base object to None to prevent NumPy from freeing the data
+    Py_INCREF(Py_None);
+    PyArray_SetBaseObject((PyArrayObject*)array, Py_None);
     
-    int* arr_data = (int*)PyArray_DATA((PyArrayObject*)array);
-    memcpy(arr_data, grid_data + g * L * L, L * L * sizeof(int));
+    PyList_SET_ITEM(grid_list, i, array);  // Steals reference
+
     
-    if (PyList_Append(new_list, array) < 0) {
-      Py_DECREF(array);
-      Py_DECREF(list);
-      Py_DECREF(new_list);
-      return -1;
-    }
-    
-    Py_DECREF(array);  // PyList_Append increments ref count
   }
 
-  if (PyList_Append(list, new_list) < 0) {
-    // Error handling
-    Py_DECREF(list);
-    Py_DECREF(new_list);
+  // Get the module attribute "list"
+  PyObject* module = PyImport_AddModule("gasp"); 
+  if (!module) {
+    Py_DECREF(grid_list);
     return -1;
   }
+  
+  PyObject* existing_list = PyObject_GetAttrString(module, "grids");
+  if (!existing_list || !PyList_Check(existing_list)) {
+    Py_XDECREF(existing_list);
+    Py_DECREF(grid_list);
+    PyErr_SetString(PyExc_RuntimeError, "Attribute 'grids' not found or not a list");
+    return -1;
+  }
+  
+  // Append the new list of arrays
+  if (PyList_Append(existing_list, grid_list) < 0) {
+    Py_DECREF(existing_list);
+    Py_DECREF(grid_list);
+    return -1;
+  }
+  
+  Py_DECREF(existing_list);
+  Py_DECREF(grid_list);
 
-  Py_DECREF(list);
-  Py_DECREF(new_list);
-  return 0; // Success
-    
+  ihist++; // Increment snapshot history counter
+  
+  return 0;
+  
 }
 
 
@@ -177,7 +197,8 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
   int gpu_method = 0;            // GPU method to use - see mc_gpu.cu
 
   /* list of keywords */
-  static char* kwlist[] = {"initial_spin", "up_threshold", "dn_threshold", "mag_output_int",
+  static char* kwlist[] = {"L", "ngrid", "tot_nsweeps", "beta", "h",
+    "initial_spin", "up_threshold", "dn_threshold", "mag_output_int",
     "grid_output_int", "threadsPerBlock", "gpu_method", NULL};
 
 
@@ -196,6 +217,16 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
   /* Reset the module level list of grids to empty */
   reset_grids_list(self, NULL);
 
+  /* Allocate the C array this list of grids wraps */
+  if (grid_history != NULL) { free(grid_history); }  
+  int nsnaps = tot_nsweeps/grid_output_int + 1;
+  grid_history = (int8_t *)malloc(nsnaps*ngrids*L*L*sizeof(int8_t));
+  if (grid_history == NULL){
+    printf("Error allocating RAM to hold grid history!\n");
+    return NULL;	   
+  }
+  ihist = 0;
+  
   
 /*=================================
    Write output header 
@@ -209,7 +240,7 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
   int *ising_grids; // array of LxLxngrids spins
   int *grid_fate;   // stores pending(-1), reached B first (1) or reached A first (0)
   
-
+  
   
   
   // Initialise as 100% spin down for all grids

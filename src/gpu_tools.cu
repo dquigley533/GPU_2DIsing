@@ -176,4 +176,16 @@ void gpuInitRand(int ngrids, int threadsPerBlock, unsigned long rngseed, curandS
 
 }
 
-		  
+int select_gpu_method(int L, int ngrids, int threadsPerBlock, int gpu_device ) {
+
+
+
+  //  L*L*threadsPerBlock/8
+
+  return 0;
+
+}
+
+
+
+
