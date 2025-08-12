@@ -35,22 +35,27 @@ static PyObject* reset_grids_list(PyObject* self, PyObject* args) {
     PyObject *module, *new_list;
 
     // Import the module
-    module = PyImport_ImportModule("gasp");
-    if (!module) return NULL;
+  module = PyImport_ImportModule("gasp");
+  if (!module) {
+    PyErr_SetString(PyExc_ImportError, "Could not import 'gasp' module");
+    return NULL;
+  }
 
     // Create a new empty list
     new_list = PyList_New(0);
-    if (!new_list) {
-        Py_DECREF(module);
-        return NULL;
-    }
+  if (!new_list) {
+    Py_DECREF(module);
+    PyErr_SetString(PyExc_RuntimeError, "Could not create new list for grids");
+    return NULL;
+  }
 
     // Replace the module-level attribute
-    if (PyModule_AddObject(module, "grids", new_list) < 0) {
-        Py_DECREF(new_list);
-        Py_DECREF(module);
-        return NULL;
-    }
+  if (PyModule_AddObject(module, "grids", new_list) < 0) {
+    Py_DECREF(new_list);
+    Py_DECREF(module);
+    PyErr_SetString(PyExc_RuntimeError, "Could not add 'grids' attribute to module");
+    return NULL;
+  }
 
     Py_DECREF(module);
     Py_RETURN_NONE;
@@ -63,17 +68,24 @@ PyObject* populate_grids_list(int L, int ngrids, int* grid_data) {
   
   // Import the module to get the list
   module = PyImport_ImportModule("gasp");
-  if (!module) return NULL;
+  if (!module) {
+    PyErr_SetString(PyExc_ImportError, "Could not import 'gasp' module");
+    return NULL;
+  }
 
   list = PyObject_GetAttrString(module, "grids");
   Py_DECREF(module);
-  if (!list) return NULL;
+  if (!list) {
+    PyErr_SetString(PyExc_AttributeError, "Could not get 'grids' attribute from module");
+    return NULL;
+  }
   
   for (int g = 0; g < ngrids; ++g) {
     npy_intp dims[2] = {L, L};
     PyObject* array = PyArray_SimpleNew(2, dims, NPY_INT32);
     if (!array) {
       Py_DECREF(list);
+      PyErr_SetString(PyExc_RuntimeError, "Could not create NumPy array for grid");
       return NULL;
     }
     
@@ -83,10 +95,11 @@ PyObject* populate_grids_list(int L, int ngrids, int* grid_data) {
     if (PyList_Append(list, array) < 0) {
       Py_DECREF(array);
       Py_DECREF(list);
+      PyErr_SetString(PyExc_RuntimeError, "Could not append array to grids list");
       return NULL;
     }
     
-    Py_DECREF(array);  // PyList_Append increments ref count
+  Py_DECREF(array);  // PyList_Append increments ref count
   }
   
     Py_DECREF(list);
@@ -224,8 +237,8 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
   int nsnaps = tot_nsweeps/grid_output_int + 1;
   grid_history = (int8_t *)malloc(nsnaps*ngrids*L*L*sizeof(int8_t));
   if (grid_history == NULL){
-    printf("Error allocating RAM to hold grid history!\n");
-    return NULL;	   
+    PyErr_SetString(PyExc_MemoryError, "Error allocating RAM to hold grid history!");
+    return NULL;   
   }
   ihist = 0;
   
@@ -289,9 +302,9 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
     // Initialise model grid on GPU
     gpuInitGrid(L, ngrids, threadsPerBlock, ising_grids, &d_ising_grids, &d_neighbour_list); 
 
-    // Select gpu_method - broken
+    // Select gpu_method 
     //printf("Calling select_gpu_method\n");
-    //gpu_method = select_gpu_method(L, ngrids, threadsPerBlock, idev);
+    gpu_method = select_gpu_method(L, ngrids, threadsPerBlock, idev);
     
     curandState *d_state;                  // Pointer to device RNG states
    
@@ -322,7 +335,9 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
     gpuErrchk( cudaFree(d_ising_grids) );
     gpuErrchk( cudaFree(d_neighbour_list) );
 
-    
+
+
+
  }
 
   //populate_grids_list(L, ngrids, ising_grids);
@@ -359,7 +374,10 @@ PyMODINIT_FUNC PyInit_gasp(void) {
   
   /* Assign created module to a variable */
   PyObject* module = PyModule_Create(&gaspmodule);
-  if (!module) return NULL;  
+  if (!module) {
+    PyErr_SetString(PyExc_RuntimeError, "Could not create gasp module");
+    return NULL;
+  }
 
   /* Initialise GPU device if available on import */
   if (run_gpu==true) {
@@ -385,6 +403,7 @@ PyMODINIT_FUNC PyInit_gasp(void) {
   if (PyModule_AddObject(module, "grids", list) < 0) {
     Py_DECREF(list);
     Py_DECREF(module);
+    PyErr_SetString(PyExc_RuntimeError, "Could not add 'grids' attribute to gasp module");
     return NULL;
   }
 

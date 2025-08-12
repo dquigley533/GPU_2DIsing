@@ -44,10 +44,16 @@ __global__ void compute_magnetisation_gpu(const int L, const int ngrids, int *d_
 float mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, mc_sampler_t samples, mc_function_t calc, gpu_run_t gpu_state, GridOutputFunc func);
 
 
-// Neighbour list squeezed into constant memory. Use of uint16_t limts MAXL to be 
-// 128, or would need to move to 2D indexing.
-//__constant__ uint16_t dc_neighbour_list[MAXL*MAXL*4];
+// Neighbour list squeezed into constant memory. We can have 64k max in constant memory.
+// Limited to MAXL = 256 by upper limit of what can be stored in uint8_t. 
+// Limited to MAXL = 65,535 by upper limit of what can be stored in uint16_t. 
+// But constant memory is limited to 64k, so each array will be 32k max meaning
+//     - If using uint16_t MAXL limited to 16,384 by constant memory size limit
+//     - If using uint8_t MAXL limited to 65,535 by constant memory size limit
+// Using uint16_t and MAXL = 8192 should cover all use cases and use only half constant memory
 
-#define MAXL 64
-__constant__ uint8_t dc_next[MAXL];
-__constant__ uint8_t dc_prev[MAXL];
+
+#define MAXL 8192
+__constant__ uint16_t dc_next[MAXL]; // Index of positive + 1 shift neighbour
+__constant__ uint16_t dc_prev[MAXL]; // Index of negative - 1 shift neighbour
+

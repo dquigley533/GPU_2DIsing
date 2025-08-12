@@ -191,31 +191,20 @@ int select_gpu_method(int L, int ngrids, int threadsPerBlock, int gpu_device ) {
   
   /* Max shared memory available to a thread block */
   gpuErrchk( cudaGetDeviceProperties(&prop,gpu_device) );
-  int max_shmem = 32*1024; prop.sharedMemPerBlock;
-  
-  /* Number of SMs */
-  int num_sms = prop.multiProcessorCount;
+  int max_shmem = prop.sharedMemPerBlock;
 
-  /* Need enough memory for two warps at once
-     to overlap compuation and copying */
-  double subs = 1.0; //ngrids/(threadsPerBlock*num_sms);
-
-  /* Shared memory required for method 2 */
-  int req_shmem = ceil(L*L/8)*threadsPerBlock*subs*sizeof(uint8_t);
+  double value = (8.0 * max_shmem) / (threadsPerBlock);
+  int maxL = (int)sqrt(value);
+  maxL = int(sqrt(32*(maxL*maxL/32)));
 
   int method;
-  if ( req_shmem < max_shmem ) {
+  if ( L <= maxL ) {
     printf("Problem size fits into shared memory with multi-spin coding : using method 2.\n");
     method = 2;
   } else {
     printf("Problem size too large for shared memory. Using (slow) global memory.\n");
     method = 0;
   }
-
-
-  double value = (8.0 * max_shmem) / (subs*threadsPerBlock);
-  int maxL = (int)sqrt(value);
-  maxL = int(sqrt(32*(maxL*maxL/32)));
   
   printf("For reference, estimated largest L for method 2 : %d\n", maxL);
 

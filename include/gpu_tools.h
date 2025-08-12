@@ -27,4 +27,7 @@ __global__ void init_gpurand(unsigned long long seed, int ngrids, curandState *s
 // For testing generation of random numbers on each thread
 __global__ void populate_random(int length, float *rnd_array, curandState *state);
 
+// Selects which gpu_method to use automatically //
+int select_gpu_method(int L, int ngrids, int threadsPerBlock, int gpu_device );
+
 #endif
