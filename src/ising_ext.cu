@@ -24,8 +24,6 @@ bool run_cpu = false;   // Run using CPU
 
 int idev = -1; // GPU device to use
 
-//const int L=64;  /* Size of 2D Ising grid to simulate */
-
 /* Pointer to memory in which we might store copies of all grids 
    generated to pass back to Python. 8 bit integers to save RAM */
 int8_t* grid_history = NULL;
@@ -307,10 +305,10 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
     gpu_method = select_gpu_method(L, ngrids, threadsPerBlock, idev);
     
     curandState *d_state;                  // Pointer to device RNG states
-   
-    // Iniialise RNG on GPU
-    gpuInitRand(ngrids, threadsPerBlock, rngseed, &d_state); 
-      
+
+    // Initialise RNG on GPU
+    gpuInitRand(ngrids, threadsPerBlock, rngseed, &d_state);
+
     // Precompute acceptance probabilities for flip moves
     preComputeProbs_gpu(beta, h);
 
@@ -351,8 +349,198 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
     
 }
 
+static PyObject* method_run_committor_calc(PyObject* self, PyObject* args, PyObject* kwargs){
+
+  unsigned long rngseed = (long)time(NULL);
+  float result;
+
+  int L = 64;
+  int ngrids = 128;
+  int tot_nsweeps = 100;
+  double beta = 0.54;
+  double h = 0.07;
+  int initial_spin = -1;
+  double up_threshold = -0.9*(double)initial_spin;
+  double dn_threshold =  0.9*(double)initial_spin;
+  int mag_output_int = 100;
+  int grid_output_int = 1000;
+  int threadsPerBlock = 32;
+  int gpu_method = 0;
+  const char* grid_input = "gridstates.bin";
+  PyObject* grid_array_obj = NULL;
+
+  static char* kwlist[] = {"L", "ngrid", "tot_nsweeps", "beta", "h",
+    "initial_spin", "up_threshold", "dn_threshold", "mag_output_int",
+    "grid_output_int", "threadsPerBlock", "gpu_method", "grid_input", "grid_array", NULL};
+
+  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "iiidd|iddiiiisO", kwlist,
+       &L, &ngrids, &tot_nsweeps, &beta, &h, &initial_spin,
+       &up_threshold, &dn_threshold, &mag_output_int,
+       &grid_output_int, &threadsPerBlock, &gpu_method, &grid_input, &grid_array_obj)) {
+    return NULL;
+  }
+
+  int* grid_array_c = NULL;
+  int grid_array_nrows = 0, grid_array_ncols = 0;
+  if (grid_array_obj && grid_array_obj != Py_None) {
+    if (!PyArray_Check(grid_array_obj)) {
+      PyErr_SetString(PyExc_TypeError, "grid_array must be a NumPy array");
+      return NULL;
+    }
+    PyArrayObject* arr = (PyArrayObject*)grid_array_obj;
+    if (PyArray_TYPE(arr) != NPY_INT8 || PyArray_NDIM(arr) != 2) {
+      PyErr_SetString(PyExc_TypeError, "grid_array must be a 2D NumPy array of type int8");
+      return NULL;
+    }
+    grid_array_nrows = (int)PyArray_DIM(arr, 0);
+    grid_array_ncols = (int)PyArray_DIM(arr, 1);
+
+    if ( grid_array_nrows != L || grid_array_ncols != L) {
+      PyErr_SetString(PyExc_ValueError, "grid_array dimensions must match LxL");
+      return NULL;
+    }
+
+
+    npy_int8* arr_data = (npy_int8*)PyArray_DATA(arr);
+    grid_array_c = (int*)malloc(grid_array_nrows * grid_array_ncols * sizeof(int));
+    if (!grid_array_c) {
+      PyErr_SetString(PyExc_MemoryError, "Could not allocate memory for grid_array_c");
+      return NULL;
+    }
+    for (int i = 0; i < grid_array_nrows * grid_array_ncols; ++i) {
+      grid_array_c[i] = (int)arr_data[i];
+    }
+  }
+
+   /*=================================
+   Delete old output 
+  ================================*/
+  remove("gridstates.bin");
+
+  /* Reset the module level list of grids to empty */
+  reset_grids_list(self, NULL);
+
+  /* Allocate the C array this list of grids wraps */
+  if (grid_history != NULL) { free(grid_history); }  
+  int nsnaps = tot_nsweeps/grid_output_int + 1;
+  grid_history = (int8_t *)malloc(nsnaps*ngrids*L*L*sizeof(int8_t));
+  if (grid_history == NULL){
+    PyErr_SetString(PyExc_MemoryError, "Error allocating RAM to hold grid history!");
+    return NULL;   
+  }
+  ihist = 0;
+  
+  
+
+
+/*=================================
+   Initialise simulations
+  =================================*/ 
+  int *ising_grids; // array of LxLxngrids spins
+  int *grid_fate;   // stores pending(-1), reached B first (1) or reached A first (0)
+  
+  
+  // Initialise as 100% spin down for all grids
+  //ising_grids = init_grids_uniform(L, ngrids, initial_spin);
+    if (strcmp(grid_input, "gridstates.bin") == 0) {
+      ising_grids = init_grids_from_file(L, ngrids); // read from gridinput.bin
+    } else if ((strcmp(grid_input, "NumPy") == 0) && grid_array_obj != NULL) {
+      ising_grids = init_grids_from_array(L, ngrids, grid_array_c); // read from the supplied array
+    } else {
+      PyErr_SetString(PyExc_ValueError, "Invalid grid_input option or no grid_array supplied");
+      return NULL;
+    }
+
+
+  grid_fate = init_fates(ngrids); // grid fates
+    
+
+/*=================================
+    Run simulations - CPU version
+  =================================*/ 
+
+  if (run_cpu==true) {
+
+
+    printf("Using CPU\n");
+    
+    // Initialise host RNG
+    init_genrand(rngseed);
+
+    // Precompute acceptance probabilities for flip moves
+    preComputeProbs_cpu(beta, h);
+
+    mc_grids_t grids; grids.L = L; grids.ngrids = ngrids; grids.ising_grids = ising_grids;
+    mc_sampler_t samples; samples.tot_nsweeps = tot_nsweeps; samples.mag_output_int = mag_output_int; samples.grid_output_int = grid_output_int;
+    mc_function_t calc; calc.itask = 1; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold;
+
+    
+    // Perform the MC simulations
+    //result = mc_driver_cpu(grids, beta, h, grid_fate, samples, calc, write_ising_grids);
+    result = mc_driver_cpu(grids, beta, h, grid_fate, samples, calc, append_grids_list);
+    
+  }
+
+/*=================================
+    Run simulations - GPU version
+  =================================*/ 
+  if (run_gpu==true){
+
+
+    int *d_ising_grids;                    // Pointer to device grid configurations
+    int *d_neighbour_list;                 // Pointer to device neighbour lists
+
+    // Initialise model grid on GPU
+    gpuInitGrid(L, ngrids, threadsPerBlock, ising_grids, &d_ising_grids, &d_neighbour_list); 
+
+    // Select gpu_method 
+    //printf("Calling select_gpu_method\n");
+    gpu_method = select_gpu_method(L, ngrids, threadsPerBlock, idev);
+    
+    curandState *d_state;                  // Pointer to device RNG states
+
+    // Initialise RNG on GPU
+    gpuInitRand(ngrids, threadsPerBlock, rngseed, &d_state);
+
+    // Precompute acceptance probabilities for flip moves
+    preComputeProbs_gpu(beta, h);
+
+
+
+    mc_gpu_grids_t grids; grids.L = L; grids.ngrids = ngrids; grids.ising_grids = ising_grids;
+    grids.d_ising_grids = d_ising_grids; grids.d_neighbour_list = d_neighbour_list;
+    mc_sampler_t samples; samples.tot_nsweeps = tot_nsweeps; samples.mag_output_int = mag_output_int; samples.grid_output_int = grid_output_int;
+    mc_function_t calc; calc.itask = 1; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold;
+    gpu_run_t gpu_state; gpu_state.d_state = d_state;  gpu_state.threadsPerBlock = threadsPerBlock; gpu_state.gpu_method = gpu_method;
+
+
+    //result = mc_driver_gpu(grids, beta, h, grid_fate, samples, calc, gpu_state, write_ising_grids);
+    result = mc_driver_gpu(grids, beta, h, grid_fate, samples, calc, gpu_state, append_grids_list);
+    
+    // Free device arrays
+    gpuErrchk( cudaFree(d_state) );
+    gpuErrchk( cudaFree(d_ising_grids) );
+    gpuErrchk( cudaFree(d_neighbour_list) );
+
+ }
+
+  //populate_grids_list(L, ngrids, ising_grids);
+  
+/*=================================================
+    Tidy up memory used in both GPU and CPU paths
+  =================================================*/ 
+  free(ising_grids);
+  free(grid_fate);
+  if (grid_array_c) free(grid_array_c);
+
+  return PyFloat_FromDouble((double)result);
+
+}
+
+
 
 static PyMethodDef GPUIsingMethods[] = {
+  {"run_committor_calc", (PyCFunction)method_run_committor_calc, METH_VARARGS | METH_KEYWORDS, "DocString placeholder for committor calc!"},
   {"run_nucleation_swarm", (PyCFunction)method_run_nucleation_swarm, METH_VARARGS | METH_KEYWORDS, "DocString placeholder!"},
   {NULL, NULL, 0, NULL} /* DQ - not sure why we need this second member of the struct? */
 };

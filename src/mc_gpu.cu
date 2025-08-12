@@ -56,9 +56,14 @@ gpuErrchk( cudaMemcpy(d_neighbour_list, h_neighbour_list, 4*L*L*sizeof(int),cuda
 
 free(h_neighbour_list); 
 
+if (L>MAXL) {
+  fprintf(stderr,"Error: L exceeds maximum limit\n");
+  exit(EXIT_FAILURE);
+}
+
 /// Also store a version in constant memory
-uint8_t *hc_next = (uint8_t *)malloc(MAXL*sizeof(uint8_t));
-uint8_t *hc_prev = (uint8_t *)malloc(MAXL*sizeof(uint8_t));
+uint16_t *hc_next = (uint16_t *)malloc(L*sizeof(uint16_t));
+uint16_t *hc_prev = (uint16_t *)malloc(L*sizeof(uint16_t));
 
 for (spin_index=0;spin_index<L;spin_index++){
 
@@ -67,8 +72,8 @@ for (spin_index=0;spin_index<L;spin_index++){
 
 }
 
-gpuErrchk( cudaMemcpyToSymbol(dc_next, hc_next, MAXL*sizeof(uint8_t),0, cudaMemcpyHostToDevice ) );
-gpuErrchk( cudaMemcpyToSymbol(dc_prev, hc_prev, MAXL*sizeof(uint8_t),0, cudaMemcpyHostToDevice ) );
+gpuErrchk( cudaMemcpyToSymbol(dc_next, hc_next, L*sizeof(uint16_t),0, cudaMemcpyHostToDevice ) );
+gpuErrchk( cudaMemcpyToSymbol(dc_prev, hc_prev, L*sizeof(uint16_t),0, cudaMemcpyHostToDevice ) );
   
 free(hc_next); 
 free(hc_prev);
@@ -532,17 +537,19 @@ float mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate,
           cudaFuncSetAttribute(mc_sweep_gpu_bitrep, cudaFuncAttributePreferredSharedMemoryCarveout, 100);
           cudaFuncSetAttribute(mc_sweep_gpu_bitrep, cudaFuncAttributeMaxDynamicSharedMemorySize, shmem_size);
           mc_sweep_gpu_bitrep<<<blocksPerGrid,threadsPerBlock,shmem_size,stream1>>>(L,d_state,ngrids,d_ising_grids, d_neighbour_list, (float)beta,(float)h,sweeps_per_call);
+          gpuErrchk( cudaGetLastError());
       } else if (gpu_method==2){
           size_t shmem_size = ceil(L*L/8)*threadsPerBlock*sizeof(uint8_t); // number of bytes needed to store grid as bits
           if (threadsPerBlock==32){
             cudaFuncSetAttribute(mc_sweep_gpu_bitmap32, cudaFuncAttributePreferredSharedMemoryCarveout, 100);
             cudaFuncSetAttribute(mc_sweep_gpu_bitmap32, cudaFuncAttributeMaxDynamicSharedMemorySize, shmem_size);
             mc_sweep_gpu_bitmap32<<<blocksPerGrid,threadsPerBlock,shmem_size,stream1>>>(L,d_state,ngrids,d_ising_grids, d_neighbour_list, (float)beta,(float)h,sweeps_per_call);
-            gpuErrchk( cudaGetLastError())
+            gpuErrchk( cudaGetLastError());
           } else if (threadsPerBlock==64){
             cudaFuncSetAttribute(mc_sweep_gpu_bitmap64, cudaFuncAttributePreferredSharedMemoryCarveout, 100);
             cudaFuncSetAttribute(mc_sweep_gpu_bitmap64, cudaFuncAttributeMaxDynamicSharedMemorySize, shmem_size);
             mc_sweep_gpu_bitmap64<<<blocksPerGrid,threadsPerBlock,shmem_size,stream1>>>(L,d_state,ngrids,d_ising_grids, d_neighbour_list, (float)beta,(float)h,sweeps_per_call);
+            gpuErrchk( cudaGetLastError());
           } else {
             printf("Invalid threadsPerBlock for gpu_method=2\n");
             exit(EXIT_FAILURE);
@@ -569,8 +576,8 @@ float mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate,
             if ( magnetisation[igrid] > up_thr ) nnuc++;
           }
 	        result = (float)((double)nnuc/(double)ngrids);
-          printf("%10d  %12.6f\n",isweep, (double)nnuc/(double)ngrids);
-          //fflush(stdout);
+          fprintf(stdout, "%10d  %12.6f\n",isweep, (double)nnuc/(double)ngrids);
+          fflush(stdout);
           if (nnuc==ngrids) break; // Stop if everyone has nucleated
         } else if ( itask == 1 ){
 
@@ -616,8 +623,9 @@ float mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate,
 
     t2 = clock();
 
-    printf("\n# Time taken on GPU = %f seconds\n",(double)(t2-t1)/(double)CLOCKS_PER_SEC);
-    if (itask==1) { printf("pB estimate : %10.6f\n", result); }
+    fprintf(stdout, "\n# Time taken on GPU = %f seconds\n",(double)(t2-t1)/(double)CLOCKS_PER_SEC);
+    if (itask==1) { fprintf(stdout, "pB estimate : %10.6f\n", result); }
+    fflush(stdout);
 
     // Destroy streams
     gpuErrchk( cudaStreamDestroy(stream1) );
