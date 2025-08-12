@@ -528,13 +528,20 @@ float mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate,
       if (gpu_method==0){
         mc_sweep_gpu<<<blocksPerGrid,threadsPerBlock,0,stream1>>>(L,d_state,ngrids,d_ising_grids,d_neighbour_list, (float)beta,(float)h,sweeps_per_call);
       } else if (gpu_method==1){
-          size_t shmem_size = L*L*threadsPerBlock*sizeof(uint8_t)/8; // number of bytes needed to store grid as bits
+          size_t shmem_size = ceil(L*L/8)*threadsPerBlock*sizeof(uint8_t); // number of bytes needed to store grid as bits
+          cudaFuncSetAttribute(mc_sweep_gpu_bitrep, cudaFuncAttributePreferredSharedMemoryCarveout, 100);
+          cudaFuncSetAttribute(mc_sweep_gpu_bitrep, cudaFuncAttributeMaxDynamicSharedMemorySize, shmem_size);
           mc_sweep_gpu_bitrep<<<blocksPerGrid,threadsPerBlock,shmem_size,stream1>>>(L,d_state,ngrids,d_ising_grids, d_neighbour_list, (float)beta,(float)h,sweeps_per_call);
       } else if (gpu_method==2){
-          size_t shmem_size = L*L*threadsPerBlock*sizeof(uint8_t)/8; // number of bytes needed to store grid as bits
+          size_t shmem_size = ceil(L*L/8)*threadsPerBlock*sizeof(uint8_t); // number of bytes needed to store grid as bits
           if (threadsPerBlock==32){
+            cudaFuncSetAttribute(mc_sweep_gpu_bitmap32, cudaFuncAttributePreferredSharedMemoryCarveout, 100);
+            cudaFuncSetAttribute(mc_sweep_gpu_bitmap32, cudaFuncAttributeMaxDynamicSharedMemorySize, shmem_size);
             mc_sweep_gpu_bitmap32<<<blocksPerGrid,threadsPerBlock,shmem_size,stream1>>>(L,d_state,ngrids,d_ising_grids, d_neighbour_list, (float)beta,(float)h,sweeps_per_call);
+            gpuErrchk( cudaGetLastError())
           } else if (threadsPerBlock==64){
+            cudaFuncSetAttribute(mc_sweep_gpu_bitmap64, cudaFuncAttributePreferredSharedMemoryCarveout, 100);
+            cudaFuncSetAttribute(mc_sweep_gpu_bitmap64, cudaFuncAttributeMaxDynamicSharedMemorySize, shmem_size);
             mc_sweep_gpu_bitmap64<<<blocksPerGrid,threadsPerBlock,shmem_size,stream1>>>(L,d_state,ngrids,d_ising_grids, d_neighbour_list, (float)beta,(float)h,sweeps_per_call);
           } else {
             printf("Invalid threadsPerBlock for gpu_method=2\n");
@@ -561,8 +568,9 @@ float mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate,
           for (igrid=0;igrid<ngrids;igrid++){
             if ( magnetisation[igrid] > up_thr ) nnuc++;
           }
-	  result = (float)((double)nnuc/(double)ngrids);
+	        result = (float)((double)nnuc/(double)ngrids);
           printf("%10d  %12.6f\n",isweep, (double)nnuc/(double)ngrids);
+          //fflush(stdout);
           if (nnuc==ngrids) break; // Stop if everyone has nucleated
         } else if ( itask == 1 ){
 

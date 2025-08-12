@@ -44,11 +44,11 @@ int main (int argc, char *argv[]) {
   int mag_output_int  = 100;   // Number of MC sweeps between calculation of magnetisation
   int grid_output_int = 1000;  // Number of MC sweeps between dumps of grid to file
 
-  double beta = 0.54;       // Inverse temperature
-  double h = 0.07;          // External field
+  double beta = 0.54;          // Inverse temperature
+  double h = 0.07;             // External field
 
-  double dn_threshold = -0.90;         // Magnetisation at which we consider the system to have reached spin up state
-  double up_threshold =  0.90;         // Magnetisation at which we consider the system to have reached spin down state
+  double dn_threshold = -0.90;   // Magnetisation at which we consider the system to have reached spin up state
+  double up_threshold =  0.90;   // Magnetisation at which we consider the system to have reached spin down state
 
   //unsigned long rngseed = 2894203475;  // RNG seed (fixed for development/testing)
   unsigned long rngseed = (long)time(NULL);

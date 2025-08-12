@@ -22,6 +22,8 @@ extern "C" {
 bool run_gpu = true;    // Run using GPU
 bool run_cpu = false;   // Run using CPU
 
+int idev = -1; // GPU device to use
+
 //const int L=64;  /* Size of 2D Ising grid to simulate */
 
 /* Pointer to memory in which we might store copies of all grids 
@@ -228,10 +230,6 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
   ihist = 0;
   
   
-/*=================================
-   Write output header 
-  ================================*/
-  printf("# isweep    nucleated fraction\n");
 
 
 /*=================================
@@ -255,6 +253,8 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
   if (run_cpu==true) {
 
 
+    printf("Using CPU\n");
+    
     // Initialise host RNG
     init_genrand(rngseed);
 
@@ -264,7 +264,13 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
     mc_grids_t grids; grids.L = L; grids.ngrids = ngrids; grids.ising_grids = ising_grids;
     mc_sampler_t samples; samples.tot_nsweeps = tot_nsweeps; samples.mag_output_int = mag_output_int; samples.grid_output_int = grid_output_int;
     mc_function_t calc; calc.itask = 0; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold;
-        
+
+    /*=================================
+      Write output header 
+      ================================*/
+    printf("# isweep    nucleated fraction\n");
+
+    
     // Perform the MC simulations
     //result = mc_driver_cpu(grids, beta, h, grid_fate, samples, calc, write_ising_grids);
     result = mc_driver_cpu(grids, beta, h, grid_fate, samples, calc, append_grids_list);
@@ -283,6 +289,10 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
     // Initialise model grid on GPU
     gpuInitGrid(L, ngrids, threadsPerBlock, ising_grids, &d_ising_grids, &d_neighbour_list); 
 
+    // Select gpu_method - broken
+    //printf("Calling select_gpu_method\n");
+    //gpu_method = select_gpu_method(L, ngrids, threadsPerBlock, idev);
+    
     curandState *d_state;                  // Pointer to device RNG states
    
     // Iniialise RNG on GPU
@@ -298,6 +308,12 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
     mc_function_t calc; calc.itask = 0; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold;
     gpu_run_t gpu_state; gpu_state.d_state = d_state;  gpu_state.threadsPerBlock = threadsPerBlock; gpu_state.gpu_method = gpu_method;
 
+    /*=================================
+      Write output header 
+      ================================*/
+    printf("# isweep    nucleated fraction\n");
+
+    
     //result = mc_driver_gpu(grids, beta, h, grid_fate, samples, calc, gpu_state, write_ising_grids);
     result = mc_driver_gpu(grids, beta, h, grid_fate, samples, calc, gpu_state, append_grids_list);
     
@@ -338,8 +354,6 @@ static struct PyModuleDef gaspmodule = {
 /* The init function for the module - doesn't do much other than call a function to create the module as specified in the above*/
 PyMODINIT_FUNC PyInit_gasp(void) { 
 
-  
-
    // Initialize NumPy API
   import_array();
   
@@ -351,8 +365,8 @@ PyMODINIT_FUNC PyInit_gasp(void) {
   if (run_gpu==true) {
 
     // Initialise GPU device(s)
-    int igpu = gpuInitDevice(-1); 
-    if (igpu==-1){
+    idev = gpuInitDevice(-1); 
+    if (idev==-1){
       printf("Falling back to CPU\n");
       run_cpu=true;
       run_gpu=false;
@@ -374,9 +388,7 @@ PyMODINIT_FUNC PyInit_gasp(void) {
     return NULL;
   }
 
-  
 
-  
   return module;
     
 }

@@ -25,10 +25,10 @@ int gpuInitDevice(int deviceIndex){
     err = cudaGetDeviceCount(&count);
 
     if ( (count==0) || (err!=cudaSuccess) ) {
-        fprintf(stderr,"No CUDA supported devices are available in this system.\n");
+        fprintf(stdout,"No CUDA supported devices are available in this system.\n");
         return -1;
     } else {
-        fprintf(stderr,"Found %d CUDA devices in this system\n",count);
+        fprintf(stdout,"Found %d CUDA devices in this system\n",count);
     }
 
 
@@ -47,15 +47,21 @@ int gpuInitDevice(int deviceIndex){
         // us the name of the CUDA device. Other members of this
         // struct tell us the clock speed and compute capability
         // of the device.
-        fprintf(stderr,"Device %d : %s\n",idev,prop.name);
-        fprintf(stderr,"================================\n");
-        fprintf(stderr,"Number of SMs       : %d\n",prop.multiProcessorCount);
-        fprintf(stderr,"Max SHMEM per block : %ld KB\n",prop.sharedMemPerBlock/1024);
-        //fprintf(stderr,"Warp size           : %d\n",prop.warpSize);
+        fprintf(stdout,"Device %d : %s\n",idev,prop.name);
+        fprintf(stdout,"================================\n");
+        fprintf(stdout,"Number of SMs       : %d\n",prop.multiProcessorCount);
+        fprintf(stdout,"Max SHMEM per block : %ld KB\n",prop.sharedMemPerBlock/1024);
+
+	int value;
+	gpuErrchk(cudaDeviceGetAttribute(&value, cudaDevAttrMaxSharedMemoryPerBlockOptin, idev));
+	fprintf(stdout,"Max Opt in shared   : %ld KB\n",value/1024);
+
+
+	//fprintf(stderr,"Warp size           : %d\n",prop.warpSize);
         //fprintf(stderr,"Global DRAM         : %ld\n",prop.totalGlobalMem);
-	fprintf(stderr,"Recommended ngrids  : %d\n", 4*prop.warpSize*prop.multiProcessorCount);
+	fprintf(stdout,"Recommended ngrids  : %d\n", 4*prop.warpSize*prop.multiProcessorCount);
 	
-        fprintf(stderr,"\n");
+        fprintf(stdout,"\n");
 
     }
 
@@ -66,9 +72,12 @@ int gpuInitDevice(int deviceIndex){
     }
 
     gpuErrchk( cudaGetDevice(&idev ) );
-    fprintf(stderr,"Using CUDA device : %d\n",idev);
+    fprintf(stdout,"Using CUDA device : %d\n",idev);
+    
 
-    return 0;
+    fflush(stdout);
+
+    return idev;
     
 }
 
@@ -178,11 +187,41 @@ void gpuInitRand(int ngrids, int threadsPerBlock, unsigned long rngseed, curandS
 
 int select_gpu_method(int L, int ngrids, int threadsPerBlock, int gpu_device ) {
 
+  cudaDeviceProp prop;
+  
+  /* Max shared memory available to a thread block */
+  gpuErrchk( cudaGetDeviceProperties(&prop,gpu_device) );
+  int max_shmem = 32*1024; prop.sharedMemPerBlock;
+  
+  /* Number of SMs */
+  int num_sms = prop.multiProcessorCount;
+
+  /* Need enough memory for two warps at once
+     to overlap compuation and copying */
+  double subs = 1.0; //ngrids/(threadsPerBlock*num_sms);
+
+  /* Shared memory required for method 2 */
+  int req_shmem = ceil(L*L/8)*threadsPerBlock*subs*sizeof(uint8_t);
+
+  int method;
+  if ( req_shmem < max_shmem ) {
+    printf("Problem size fits into shared memory with multi-spin coding : using method 2.\n");
+    method = 2;
+  } else {
+    printf("Problem size too large for shared memory. Using (slow) global memory.\n");
+    method = 0;
+  }
 
 
-  //  L*L*threadsPerBlock/8
+  double value = (8.0 * max_shmem) / (subs*threadsPerBlock);
+  int maxL = (int)sqrt(value);
+  maxL = int(sqrt(32*(maxL*maxL/32)));
+  
+  printf("For reference, estimated largest L for method 2 : %d\n", maxL);
 
-  return 0;
+  fflush(stdout);
+  
+  return method;
 
 }
 
