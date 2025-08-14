@@ -13,8 +13,8 @@ int *init_grids_uniform(int L, int ngrids, int spin){
     exit(EXIT_FAILURE);
   }
 
-  // Initialise as spin down  
-  for (i=0;i<L*L*ngrids;i++) { ising_grids[i] = -1; }
+  // Initialise as spin   
+  for (i=0;i<L*L*ngrids;i++) { ising_grids[i] = spin; }
 
   return ising_grids;
    

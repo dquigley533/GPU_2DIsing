@@ -15,9 +15,9 @@ void gpuAssert(cudaError_t code, const char *file, int line, bool abort)
 }
 
 // Initialisation 
-int gpuInitDevice(int deviceIndex){
+int gpuInitDevice(int deviceIndex, int* gpu_nsms){
 
-    int idev, count;    
+    int idev, count, max_shmem;    
 
     cudaError_t err;  // cudaError_t is a type defined in cuda.h
     
@@ -51,17 +51,29 @@ int gpuInitDevice(int deviceIndex){
         fprintf(stdout,"================================\n");
         fprintf(stdout,"Number of SMs       : %d\n",prop.multiProcessorCount);
         fprintf(stdout,"Max SHMEM per block : %ld KB\n",prop.sharedMemPerBlock/1024);
+        max_shmem = prop.sharedMemPerBlock;
 
-	int value;
-	gpuErrchk(cudaDeviceGetAttribute(&value, cudaDevAttrMaxSharedMemoryPerBlockOptin, idev));
-	fprintf(stdout,"Max Opt in shared   : %ld KB\n",value/1024);
+      	int value;
+      	gpuErrchk(cudaDeviceGetAttribute(&value, cudaDevAttrMaxSharedMemoryPerBlockOptin, idev));
+	      fprintf(stdout,"Max Opt in shared   : %d KB\n",value/1024);
+
+
 
 
 	//fprintf(stderr,"Warp size           : %d\n",prop.warpSize);
         //fprintf(stderr,"Global DRAM         : %ld\n",prop.totalGlobalMem);
 	fprintf(stdout,"Recommended ngrids  : %d\n", 4*prop.warpSize*prop.multiProcessorCount);
-	
-        fprintf(stdout,"\n");
+  fprintf(stdout,"\n");
+  
+
+
+  double dvalue = (8.0 * max_shmem) / (32);
+  int maxL = (int)sqrt(dvalue);
+  maxL = int(sqrt(32*(maxL*maxL/32)));
+
+  fprintf(stdout,"Estimated largest L for shared memory code path : %d\n", maxL);
+  fprintf(stdout,"(Assumes threadsPerBlock = 32)\n");
+  fprintf(stdout,"\n");
 
     }
 
@@ -74,6 +86,11 @@ int gpuInitDevice(int deviceIndex){
     gpuErrchk( cudaGetDevice(&idev ) );
     fprintf(stdout,"Using CUDA device : %d\n",idev);
     
+
+    // Store these for use elsewhere
+    //gpu_idev = idev;
+    gpuErrchk( cudaGetDeviceProperties(&prop,idev) );
+    *gpu_nsms = prop.multiProcessorCount;
 
     fflush(stdout);
 
@@ -199,14 +216,14 @@ int select_gpu_method(int L, int ngrids, int threadsPerBlock, int gpu_device ) {
 
   int method;
   if ( L <= maxL ) {
-    printf("Problem size fits into shared memory with multi-spin coding : using method 2.\n");
+   //printf("Problem size fits into shared memory with multi-spin coding : using method 2.\n");
     method = 2;
   } else {
-    printf("Problem size too large for shared memory. Using (slow) global memory.\n");
+    //printf("Problem size too large for shared memory. Using (slow) global memory.\n");
     method = 0;
   }
   
-  printf("For reference, estimated largest L for method 2 : %d\n", maxL);
+  //printf("For reference, estimated largest L for method 2 : %d\n", maxL);
 
   fflush(stdout);
   

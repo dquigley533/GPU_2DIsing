@@ -14,6 +14,14 @@ gasp_src = ['gpu_tools.cu',
 
 py = import('python').find_installation(pure: false)
 
+# Add preprocessor flag for use in Python
+add_project_arguments('-DPYTHON', '-w', language : 'c')
+add_project_arguments('-DPYTHON', '-w', '-Wno-deprecated-gpu-targets', language : 'cuda')
+
+# Add debug flags for C and CUDA
+#add_project_arguments('-g', '-O0', language : 'c')
+#add_project_arguments('-G', language : 'cuda')
+
 # Build fortran source and wrapper code into extension module
 py.extension_module(
   'gasp',     

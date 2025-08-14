@@ -154,8 +154,10 @@ float mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_
           for (igrid=0;igrid<ngrids;igrid++){
             if ( magnetisation[igrid] > up_thr ) nnuc++;
           }
-          printf("%10d  %12.6f\n",isweep, (double)nnuc/(double)ngrids);
-	  result = (float)((double)nnuc/(double)ngrids);
+#ifndef PYTHON
+          fprintf(stdout, "%10d  %12.6f\n",isweep, (double)nnuc/(double)ngrids);
+#endif
+          result = (float)((double)nnuc/(double)ngrids);
 	  if (nnuc==ngrids) break; // Stop if everyone has nucleated
 	  
         } else if ( itask == 1 ){
@@ -181,9 +183,12 @@ float mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_
 
           // Monitor progress
           result = (double)nB/(double)(nA+nB);
-          printf("\r Sweep : %10d, Reached m = %6.2f : %4d , Reached m = %6.2f : %4d , Unresolved : %4d, pB = %10.6f",
+#ifndef PYTHON
+          fprintf(stdout, "\r Sweep : %10d, Reached m = %6.2f : %4d , Reached m = %6.2f : %4d , Unresolved : %4d, pB = %10.6f",
 		 isweep, dn_thr, nA, up_thr, nB, ngrids-nA-nB, result);
           fflush(stdout);
+#endif
+
           if (nA + nB == ngrids) break; // all fates resolved
         } // task
       } 
@@ -198,9 +203,11 @@ float mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_
       
     t2 = clock();  // Stop Timer
 
-    printf("\n# Time taken on CPU = %f seconds\n",(double)(t2-t1)/(double)CLOCKS_PER_SEC);
+#ifndef PYTHON
+    fprintf(stdout, "\n# Time taken on CPU = %f seconds\n",(double)(t2-t1)/(double)CLOCKS_PER_SEC);
 
     if (itask==1) { printf("pB estimate : %10.6f\n",result); }; 
+#endif
 
     // Release memory
     free(magnetisation);  

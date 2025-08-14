@@ -29,6 +29,8 @@ extern "C" {
 bool run_gpu = true;    // Run using GPU
 bool run_cpu = false;   // Run using CPU
 
+int gpu_nsms;           // Number of multiprocessors on GPU
+
 int main (int argc, char *argv[]) {
 
 /*=================================
@@ -123,7 +125,7 @@ int main (int argc, char *argv[]) {
   if (run_gpu==true) {
 
     // Initialise GPU device(s)
-    int igpu = gpuInitDevice(gpu_device); 
+    int igpu = gpuInitDevice(gpu_device, &gpu_nsms); 
     if (igpu==-1){
       printf("Falling back to CPU\n");
       run_cpu=true;

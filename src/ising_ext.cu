@@ -8,6 +8,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
 #include <numpy/arrayobject.h>
 #include <Python.h>
 
@@ -17,12 +18,14 @@ extern "C" {
 }
 
 #include "mc_gpu.h"
-#include "gpu_tools.h"
+
 
 bool run_gpu = true;    // Run using GPU
 bool run_cpu = false;   // Run using CPU
 
 int idev = -1; // GPU device to use
+int gpu_nsms;  // Number of multiprocessors on the GPU
+
 
 /* Pointer to memory in which we might store copies of all grids 
    generated to pass back to Python. 8 bit integers to save RAM */
@@ -198,10 +201,10 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
 
   /* Keyword arguments to extract */
 
-  int initial_spin = -1;       // Initial value to asign to all spins
+  int initial_spin = -1;         // Majority spin in parent phase
    
-  double up_threshold = -0.9*(double)initial_spin;  // Threshold mag at which which assumed reversed
-  double dn_threshold =  0.9*(double)initial_spin;  // Threshold mag at which assumed returned
+  double up_threshold = -0.90*(double)initial_spin;  // Threshold mag at which which assumed reversed
+  double dn_threshold =  0.95*(double)initial_spin;  // Threshold mag at which assumed returned
 
   int mag_output_int = 100;      // Sweeps between output of magnetisation
   int grid_output_int = 1000;    // Sweeps between output of grids
@@ -264,7 +267,7 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
   if (run_cpu==true) {
 
 
-    printf("Using CPU\n");
+    fprintf(stdout, "Using CPU\n");
     
     // Initialise host RNG
     init_genrand(rngseed);
@@ -279,8 +282,9 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
     /*=================================
       Write output header 
       ================================*/
-    printf("# isweep    nucleated fraction\n");
-
+#ifndef PYTHON
+    fprintf(stdout, "# isweep    nucleated fraction\n");
+#endif
     
     // Perform the MC simulations
     //result = mc_driver_cpu(grids, beta, h, grid_fate, samples, calc, write_ising_grids);
@@ -322,9 +326,10 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
     /*=================================
       Write output header 
       ================================*/
-    printf("# isweep    nucleated fraction\n");
+#ifndef PYTHON
+    fprintf(stdout, "# isweep    nucleated fraction\n");
+#endif
 
-    
     //result = mc_driver_gpu(grids, beta, h, grid_fate, samples, calc, gpu_state, write_ising_grids);
     result = mc_driver_gpu(grids, beta, h, grid_fate, samples, calc, gpu_state, append_grids_list);
     
@@ -359,9 +364,9 @@ static PyObject* method_run_committor_calc(PyObject* self, PyObject* args, PyObj
   int tot_nsweeps = 100;
   double beta = 0.54;
   double h = 0.07;
-  int initial_spin = -1;
-  double up_threshold = -0.9*(double)initial_spin;
-  double dn_threshold =  0.9*(double)initial_spin;
+ int initial_spin = -1;         // Majority spin in parent phase   
+  double up_threshold = -0.90*(double)initial_spin;  // Threshold mag at which which assumed reversed
+  double dn_threshold =  0.95*(double)initial_spin;  // Threshold mag at which assumed returned
   int mag_output_int = 100;
   int grid_output_int = 1000;
   int threadsPerBlock = 32;
@@ -462,8 +467,10 @@ static PyObject* method_run_committor_calc(PyObject* self, PyObject* args, PyObj
   if (run_cpu==true) {
 
 
-    printf("Using CPU\n");
-    
+#ifndef PYTHON
+    fprintf(stdout,"Using CPU\n");
+#endif
+
     // Initialise host RNG
     init_genrand(rngseed);
 
@@ -571,7 +578,7 @@ PyMODINIT_FUNC PyInit_gasp(void) {
   if (run_gpu==true) {
 
     // Initialise GPU device(s)
-    idev = gpuInitDevice(-1); 
+    idev = gpuInitDevice(-1, &gpu_nsms); 
     if (idev==-1){
       printf("Falling back to CPU\n");
       run_cpu=true;

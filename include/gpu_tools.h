@@ -5,8 +5,15 @@
 #include <curand.h>
 #include <curand_kernel.h>
 
+
+// GPU device in use
+//int gpu_idev = -1;
+
+// Number of SMs available
+//int gpu_nsm = -1;
+
 // Prototype for function which initialises gpu
-int gpuInitDevice(int deviceIndex=-1);
+int gpuInitDevice(int deviceIndex, int* gpu_nsms);
 
 // Function which copies model from host to device and initialises it
 void gpuInitGrid(int L, int ngrids, int threadsPerBlock, int *ising_grids, int** d_ising_grids, int** d_neighbour_list);

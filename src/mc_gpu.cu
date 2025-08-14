@@ -1,8 +1,11 @@
 // -*- mode: C -*-
 
-
 #include <stdio.h>
 #include "mc_gpu.h"
+
+#ifdef PYTHON
+#include <Python.h>
+#endif
 
 extern "C" {
    #include "io.h"
@@ -551,11 +554,11 @@ float mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate,
             mc_sweep_gpu_bitmap64<<<blocksPerGrid,threadsPerBlock,shmem_size,stream1>>>(L,d_state,ngrids,d_ising_grids, d_neighbour_list, (float)beta,(float)h,sweeps_per_call);
             gpuErrchk( cudaGetLastError());
           } else {
-            printf("Invalid threadsPerBlock for gpu_method=2\n");
+            fprintf(stderr, "Invalid threadsPerBlock for gpu_method=2\n");
             exit(EXIT_FAILURE);
           } 
       } else {
-        printf("Unknown gpu_method in ising.cu\n");
+        fprintf(stderr, "Unknown gpu_method in ising.cu\n");
         exit(EXIT_FAILURE);
       }
       
@@ -576,8 +579,14 @@ float mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate,
             if ( magnetisation[igrid] > up_thr ) nnuc++;
           }
 	        result = (float)((double)nnuc/(double)ngrids);
+#ifndef PYTHON
           fprintf(stdout, "%10d  %12.6f\n",isweep, (double)nnuc/(double)ngrids);
           fflush(stdout);
+#endif 
+#ifdef PYTHON
+          PySys_WriteStdout("\r Sweep : %10d, Reached m = %6.2f : %4d , Unresolved : %4d",
+            isweep, nnuc, up_thr, ngrids-nnuc );
+#endif
           if (nnuc==ngrids) break; // Stop if everyone has nucleated
         } else if ( itask == 1 ){
 
@@ -601,9 +610,15 @@ float mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate,
 
             // Monitor progress
             result = (double)nB/(double)(nA+nB);
+#ifndef PYTHON
             printf("\r Sweep : %10d, Reached m = %6.2f : %4d , Reached m = %6.2f : %4d , Unresolved : %4d, pB = %10.6f",
             isweep, dn_thr, nA, up_thr, nB, ngrids-nA-nB,result );
             fflush(stdout);
+#endif
+#ifdef PYTHON
+            PySys_WriteStdout("\r Sweep : %10d, Reached m = %6.2f : %4d , Reached m = %6.2f : %4d , Unresolved : %4d",
+            isweep, dn_thr, nA, up_thr, nB, ngrids-nA-nB );
+#endif
             if (nA + nB == ngrids) break; // all fates resolved
         
         } // task 
@@ -623,9 +638,15 @@ float mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate,
 
     t2 = clock();
 
+#ifndef PYTHON
     fprintf(stdout, "\n# Time taken on GPU = %f seconds\n",(double)(t2-t1)/(double)CLOCKS_PER_SEC);
     if (itask==1) { fprintf(stdout, "pB estimate : %10.6f\n", result); }
     fflush(stdout);
+#endif
+#ifdef PYTHON
+    PySys_WriteStdout("\n");
+#endif
+
 
     // Destroy streams
     gpuErrchk( cudaStreamDestroy(stream1) );
