@@ -41,7 +41,7 @@ __global__ void mc_sweep_gpu_bitmap64(const int L, curandState *state, const int
 __global__ void compute_magnetisation_gpu(const int L, const int ngrids, int *d_ising_grids, float *d_magnetisation);
 
 // Main driver function on GPU
-float mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, mc_sampler_t samples, mc_function_t calc, gpu_run_t gpu_state, GridOutputFunc func);
+void mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, mc_sampler_t samples, mc_function_t calc, gpu_run_t gpu_state, GridOutputFunc func);
 
 
 // Neighbour list squeezed into constant memory. We can have 64k max in constant memory.

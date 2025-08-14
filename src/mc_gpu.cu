@@ -455,13 +455,11 @@ __global__ void compute_magnetisation_gpu(const int L, const int ngrids, int *d_
 }
 
 
-float mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, mc_sampler_t samples, mc_function_t calc, gpu_run_t gpu_state, GridOutputFunc outfunc){
+void mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, mc_sampler_t samples, mc_function_t calc, gpu_run_t gpu_state, GridOutputFunc outfunc){
 
     clock_t t1,t2;  // For measuring time taken
     int isweep;     // MC sweep loop counter
     int igrid;      // counter for loop over replicas
-
-    float result;
 
     // Unpack structs
     int L = grids.L;
@@ -477,12 +475,20 @@ float mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate,
     int itask = calc.itask;
     double dn_thr = calc.dn_thr;
     double up_thr = calc.up_thr;
+    int ninputs = calc.ninputs;
 
     curandState* d_state = gpu_state.d_state;
     int threadsPerBlock = gpu_state.threadsPerBlock;
     int gpu_method = gpu_state.gpu_method;
 
-    
+    // Number of grids per input grid
+    if (ngrids % ninputs != 0) {
+      fprintf(stderr,"Error: ngrids must be divisible by ninputs!\n");
+      exit(EXIT_FAILURE);
+    }
+    int sub_ngrids = ngrids/ninputs;
+
+
     // Host copy of magnetisation
     float *magnetisation = (float *)malloc(ngrids*sizeof(float));
     if (magnetisation==NULL){
@@ -510,6 +516,23 @@ float mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate,
     // How many sweeps to run in each call
     int sweeps_per_call;
     sweeps_per_call = mag_output_int < grid_output_int ? mag_output_int : grid_output_int;
+
+    // result - either fraction of nucleated trajectories (itask=0) or comittor(s) (itask=1)
+    float *result;
+    int result_size;
+    if (itask==0) {
+      result_size = 1;
+    } else if (itask==1) {
+      result_size = ninputs;
+    } else {
+      fprintf(stderr,"Error: itask must be 0 or 1!\n");
+      exit(EXIT_FAILURE);
+    }
+    result=(float *)malloc(result_size*sizeof(float));
+    if (result==NULL) {
+      fprintf(stderr,"Error allocating result array!\n");
+      exit(EXIT_FAILURE);
+    }
 
     t1 = clock();  // Start Timer
 
@@ -578,7 +601,7 @@ float mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate,
           for (igrid=0;igrid<ngrids;igrid++){
             if ( magnetisation[igrid] > up_thr ) nnuc++;
           }
-	        result = (float)((double)nnuc/(double)ngrids);
+          result[0] = (float)((double)nnuc/(double)ngrids);
 #ifndef PYTHON
           fprintf(stdout, "%10d  %12.6f\n",isweep, (double)nnuc/(double)ngrids);
           fflush(stdout);
@@ -609,10 +632,9 @@ float mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate,
             } //grids
 
             // Monitor progress
-            result = (double)nB/(double)(nA+nB);
 #ifndef PYTHON
-            printf("\r Sweep : %10d, Reached m = %6.2f : %4d , Reached m = %6.2f : %4d , Unresolved : %4d, pB = %10.6f",
-            isweep, dn_thr, nA, up_thr, nB, ngrids-nA-nB,result );
+            printf("\r Sweep : %10d, Reached m = %6.2f : %4d , Reached m = %6.2f : %4d , Unresolved : %4d",
+            isweep, dn_thr, nA, up_thr, nB, ngrids-nA-nB);
             fflush(stdout);
 #endif
 #ifdef PYTHON
@@ -657,6 +679,17 @@ float mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate,
     free(magnetisation);
     gpuErrchk( cudaFree(d_magnetisation) );
 
-    return result;
+    if (itask==0) { // Just result the fraction of nucleated grids
+      *calc.result = result[0];
+    } else if (itask==1) { // Compute the committor(s)
+      int ii;
+      for (ii=0;ii<ninputs;ii++) {
+        int nB = 0;
+        for (int jj=0;jj<sub_ngrids;jj++) {
+          nB += grid_fate[ii*sub_ngrids+jj];
+        }
+        calc.result[ii] = (float)nB/(float)sub_ngrids; // Copy result to output array
+      }
+    }
 
 }

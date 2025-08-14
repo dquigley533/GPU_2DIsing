@@ -18,6 +18,8 @@ typedef struct {
   int itask;     // What to calculate?
   double dn_thr; // Magnetisation below which lies the down macrostate
   double up_thr; // Magnetisation above which lies the up macrostate
+  int ninputs;   // Number of input grids
+  float* result; // Pointer to result array
 } mc_function_t;
 
 
@@ -35,4 +37,4 @@ void mc_sweep_cpu(int L, int *ising_grids, int grid_index, double beta, double h
 void compute_magnetisation_cpu(int L, int *ising_grids, int grid_index, float *magnetisation);
 
 // Main driver routine
-float mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_sampler_t samples, mc_function_t calc, GridOutputFunc func);
+void mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_sampler_t samples, mc_function_t calc, GridOutputFunc func);

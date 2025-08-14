@@ -97,6 +97,8 @@ int main (int argc, char *argv[]) {
 
   int *ising_grids; // array of LxLxngrids spins
   int *grid_fate;   // stores pending(-1), reached B first (1) or reached A first (0)
+
+  float result;     // result of calculation
   
   if (itask==0) {   // counting nucleated samples over time
 
@@ -149,10 +151,10 @@ int main (int argc, char *argv[]) {
 
     mc_grids_t grids; grids.L = L; grids.ngrids = ngrids; grids.ising_grids = ising_grids;
     mc_sampler_t samples; samples.tot_nsweeps = tot_nsweeps; samples.mag_output_int = mag_output_int; samples.grid_output_int = grid_output_int;
-    mc_function_t calc; calc.itask = itask; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold;
-        
+    mc_function_t calc; calc.itask = itask; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold; calc.ninputs = 1; calc.result = &result;
+
     // Perform the MC simulations
-    float result = mc_driver_cpu(grids, beta, h, grid_fate, samples, calc, write_ising_grids);
+    mc_driver_cpu(grids, beta, h, grid_fate, samples, calc, write_ising_grids);
 
   }
 
@@ -180,10 +182,10 @@ int main (int argc, char *argv[]) {
     mc_gpu_grids_t grids; grids.L = L; grids.ngrids = ngrids; grids.ising_grids = ising_grids;
     grids.d_ising_grids = d_ising_grids; grids.d_neighbour_list = d_neighbour_list;
     mc_sampler_t samples; samples.tot_nsweeps = tot_nsweeps; samples.mag_output_int = mag_output_int; samples.grid_output_int = grid_output_int;
-    mc_function_t calc; calc.itask = itask; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold;
+    mc_function_t calc; calc.itask = itask; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold; calc.ninputs = 1; calc.result = &result;
     gpu_run_t gpu_state; gpu_state.d_state = d_state;  gpu_state.threadsPerBlock = threadsPerBlock; gpu_state.gpu_method = gpu_method;
 
-    float result = mc_driver_gpu(grids, beta, h, grid_fate, samples, calc, gpu_state, write_ising_grids);
+    mc_driver_gpu(grids, beta, h, grid_fate, samples, calc, gpu_state, write_ising_grids);
     
     // Free device arrays
     gpuErrchk( cudaFree(d_state) );

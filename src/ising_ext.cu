@@ -186,8 +186,6 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
 
   //unsigned long rngseed = 2894203475;  // RNG seed (fixed for development/testing)
   unsigned long rngseed = (long)time(NULL);
-  float result;
-  
   
   /* Positional arguments to extract */
   
@@ -258,7 +256,7 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
   // Initialise as 100% spin down for all grids
   ising_grids = init_grids_uniform(L, ngrids, initial_spin);
   grid_fate = NULL ; // not used
-    
+  float result; // result of calculation
 
 /*=================================
     Run simulations - CPU version
@@ -277,7 +275,7 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
 
     mc_grids_t grids; grids.L = L; grids.ngrids = ngrids; grids.ising_grids = ising_grids;
     mc_sampler_t samples; samples.tot_nsweeps = tot_nsweeps; samples.mag_output_int = mag_output_int; samples.grid_output_int = grid_output_int;
-    mc_function_t calc; calc.itask = 0; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold;
+    mc_function_t calc; calc.itask = 0; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold; calc.ninputs = 1; calc.result = &result;
 
     /*=================================
       Write output header 
@@ -288,7 +286,7 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
     
     // Perform the MC simulations
     //result = mc_driver_cpu(grids, beta, h, grid_fate, samples, calc, write_ising_grids);
-    result = mc_driver_cpu(grids, beta, h, grid_fate, samples, calc, append_grids_list);
+    mc_driver_cpu(grids, beta, h, grid_fate, samples, calc, append_grids_list);
     
   }
 
@@ -320,7 +318,7 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
     mc_gpu_grids_t grids; grids.L = L; grids.ngrids = ngrids; grids.ising_grids = ising_grids;
     grids.d_ising_grids = d_ising_grids; grids.d_neighbour_list = d_neighbour_list;
     mc_sampler_t samples; samples.tot_nsweeps = tot_nsweeps; samples.mag_output_int = mag_output_int; samples.grid_output_int = grid_output_int;
-    mc_function_t calc; calc.itask = 0; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold;
+    mc_function_t calc; calc.itask = 0; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold; calc.ninputs = 1; calc.result = &result;
     gpu_run_t gpu_state; gpu_state.d_state = d_state;  gpu_state.threadsPerBlock = threadsPerBlock; gpu_state.gpu_method = gpu_method;
 
     /*=================================
@@ -331,15 +329,12 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
 #endif
 
     //result = mc_driver_gpu(grids, beta, h, grid_fate, samples, calc, gpu_state, write_ising_grids);
-    result = mc_driver_gpu(grids, beta, h, grid_fate, samples, calc, gpu_state, append_grids_list);
+    mc_driver_gpu(grids, beta, h, grid_fate, samples, calc, gpu_state, append_grids_list);
     
     // Free device arrays
     gpuErrchk( cudaFree(d_state) );
     gpuErrchk( cudaFree(d_ising_grids) );
     gpuErrchk( cudaFree(d_neighbour_list) );
-
-
-
 
  }
 
@@ -351,13 +346,12 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
   free(ising_grids);
 
   return PyFloat_FromDouble((double)result);
-    
+
 }
 
 static PyObject* method_run_committor_calc(PyObject* self, PyObject* args, PyObject* kwargs){
 
   unsigned long rngseed = (long)time(NULL);
-  float result;
 
   int L = 64;
   int ngrids = 128;
@@ -366,7 +360,7 @@ static PyObject* method_run_committor_calc(PyObject* self, PyObject* args, PyObj
   double h = 0.07;
  int initial_spin = -1;         // Majority spin in parent phase   
   double up_threshold = -0.90*(double)initial_spin;  // Threshold mag at which which assumed reversed
-  double dn_threshold =  0.95*(double)initial_spin;  // Threshold mag at which assumed returned
+  double dn_threshold =  0.93*(double)initial_spin;  // Threshold mag at which assumed returned
   int mag_output_int = 100;
   int grid_output_int = 1000;
   int threadsPerBlock = 32;
@@ -386,38 +380,68 @@ static PyObject* method_run_committor_calc(PyObject* self, PyObject* args, PyObj
   }
 
   int* grid_array_c = NULL;
-  int grid_array_nrows = 0, grid_array_ncols = 0;
+  int grid_array_count = 1; // Default to 1 if no grid_array provided
   if (grid_array_obj && grid_array_obj != Py_None) {
-    if (!PyArray_Check(grid_array_obj)) {
-      PyErr_SetString(PyExc_TypeError, "grid_array must be a NumPy array");
+    if (!PyList_Check(grid_array_obj)) {
+      PyErr_SetString(PyExc_TypeError, "grid_array must be a list of 2D NumPy arrays");
       return NULL;
     }
-    PyArrayObject* arr = (PyArrayObject*)grid_array_obj;
-    if (PyArray_TYPE(arr) != NPY_INT8 || PyArray_NDIM(arr) != 2) {
-      PyErr_SetString(PyExc_TypeError, "grid_array must be a 2D NumPy array of type int8");
+    grid_array_count = (int)PyList_Size(grid_array_obj);
+    if (grid_array_count > gpu_nsms) {
+      PyErr_SetString(PyExc_ValueError, "grid_array list length exceeds gpu_nsms");
       return NULL;
     }
-    grid_array_nrows = (int)PyArray_DIM(arr, 0);
-    grid_array_ncols = (int)PyArray_DIM(arr, 1);
-
-    if ( grid_array_nrows != L || grid_array_ncols != L) {
-      PyErr_SetString(PyExc_ValueError, "grid_array dimensions must match LxL");
+    if (grid_array_count == 0) {
+      PyErr_SetString(PyExc_ValueError, "grid_array list is empty");
+      return NULL;
+    }
+    if (gpu_nsms % grid_array_count != 0) {
+      PyErr_SetString(PyExc_ValueError, "grid_array list length must divide gpu_nsms exactly");
+      return NULL;
+    }
+    if (ngrids % gpu_nsms != 0) {
+      PyErr_SetString(PyExc_ValueError, "ngrids must be a multiple of gpu_nsms");
+      return NULL;
+    }
+    if (ngrids % grid_array_count != 0) {
+      PyErr_SetString(PyExc_ValueError, "ngrids must be a multiple of grid_array list length");
       return NULL;
     }
 
-
-    npy_int8* arr_data = (npy_int8*)PyArray_DATA(arr);
-    grid_array_c = (int*)malloc(grid_array_nrows * grid_array_ncols * sizeof(int));
+    // Allocate space for all arrays
+    grid_array_c = (int*)malloc(grid_array_count * L * L * sizeof(int));
     if (!grid_array_c) {
       PyErr_SetString(PyExc_MemoryError, "Could not allocate memory for grid_array_c");
       return NULL;
     }
-    for (int i = 0; i < grid_array_nrows * grid_array_ncols; ++i) {
-      grid_array_c[i] = (int)arr_data[i];
+    for (int arr_idx = 0; arr_idx < grid_array_count; ++arr_idx) {
+      PyObject* arr_obj = PyList_GetItem(grid_array_obj, arr_idx);
+      if (!PyArray_Check(arr_obj)) {
+        PyErr_SetString(PyExc_TypeError, "All items in grid_array must be NumPy arrays");
+        free(grid_array_c);
+        return NULL;
+      }
+      PyArrayObject* arr = (PyArrayObject*)arr_obj;
+      if (PyArray_TYPE(arr) != NPY_INT8 || PyArray_NDIM(arr) != 2) {
+        PyErr_SetString(PyExc_TypeError, "Each grid_array item must be a 2D NumPy array of type int8");
+        free(grid_array_c);
+        return NULL;
+      }
+      int nrows = (int)PyArray_DIM(arr, 0);
+      int ncols = (int)PyArray_DIM(arr, 1);
+      if (nrows != L || ncols != L) {
+        PyErr_SetString(PyExc_ValueError, "Each grid_array item must have shape LxL");
+        free(grid_array_c);
+        return NULL;
+      }
+      npy_int8* arr_data = (npy_int8*)PyArray_DATA(arr);
+      for (int i = 0; i < L * L; ++i) {
+        grid_array_c[arr_idx * L * L + i] = (int)arr_data[i];
+      }
     }
   }
 
-   /*=================================
+/*=================================
    Delete old output 
   ================================*/
   remove("gridstates.bin");
@@ -450,7 +474,7 @@ static PyObject* method_run_committor_calc(PyObject* self, PyObject* args, PyObj
     if (strcmp(grid_input, "gridstates.bin") == 0) {
       ising_grids = init_grids_from_file(L, ngrids); // read from gridinput.bin
     } else if ((strcmp(grid_input, "NumPy") == 0) && grid_array_obj != NULL) {
-      ising_grids = init_grids_from_array(L, ngrids, grid_array_c); // read from the supplied array
+      ising_grids = init_grids_from_array(L, ngrids, grid_array_count, grid_array_c); // read from the supplied array
     } else {
       PyErr_SetString(PyExc_ValueError, "Invalid grid_input option or no grid_array supplied");
       return NULL;
@@ -458,7 +482,15 @@ static PyObject* method_run_committor_calc(PyObject* self, PyObject* args, PyObj
 
 
   grid_fate = init_fates(ngrids); // grid fates
-    
+
+  float *result = (float *)malloc(grid_array_count * sizeof(float)); // result of committor calcs
+  if (result == NULL) {
+    PyErr_SetString(PyExc_MemoryError, "Could not allocate memory for result array");
+    free(ising_grids);
+    if (grid_fate) free(grid_fate);
+    if (grid_array_c) free(grid_array_c);
+    return NULL;
+  }
 
 /*=================================
     Run simulations - CPU version
@@ -479,12 +511,12 @@ static PyObject* method_run_committor_calc(PyObject* self, PyObject* args, PyObj
 
     mc_grids_t grids; grids.L = L; grids.ngrids = ngrids; grids.ising_grids = ising_grids;
     mc_sampler_t samples; samples.tot_nsweeps = tot_nsweeps; samples.mag_output_int = mag_output_int; samples.grid_output_int = grid_output_int;
-    mc_function_t calc; calc.itask = 1; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold;
+    mc_function_t calc; calc.itask = 1; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold; calc.ninputs = grid_array_count; calc.result=result;
 
     
     // Perform the MC simulations
     //result = mc_driver_cpu(grids, beta, h, grid_fate, samples, calc, write_ising_grids);
-    result = mc_driver_cpu(grids, beta, h, grid_fate, samples, calc, append_grids_list);
+    mc_driver_cpu(grids, beta, h, grid_fate, samples, calc, append_grids_list);
     
   }
 
@@ -517,12 +549,12 @@ static PyObject* method_run_committor_calc(PyObject* self, PyObject* args, PyObj
     mc_gpu_grids_t grids; grids.L = L; grids.ngrids = ngrids; grids.ising_grids = ising_grids;
     grids.d_ising_grids = d_ising_grids; grids.d_neighbour_list = d_neighbour_list;
     mc_sampler_t samples; samples.tot_nsweeps = tot_nsweeps; samples.mag_output_int = mag_output_int; samples.grid_output_int = grid_output_int;
-    mc_function_t calc; calc.itask = 1; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold;
-    gpu_run_t gpu_state; gpu_state.d_state = d_state;  gpu_state.threadsPerBlock = threadsPerBlock; gpu_state.gpu_method = gpu_method;
+    mc_function_t calc; calc.itask = 1; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold; calc.ninputs = grid_array_count; calc.result=result;
+    gpu_run_t gpu_state; gpu_state.d_state = d_state;  gpu_state.threadsPerBlock = threadsPerBlock; gpu_state.gpu_method = gpu_method; 
 
 
     //result = mc_driver_gpu(grids, beta, h, grid_fate, samples, calc, gpu_state, write_ising_grids);
-    result = mc_driver_gpu(grids, beta, h, grid_fate, samples, calc, gpu_state, append_grids_list);
+    mc_driver_gpu(grids, beta, h, grid_fate, samples, calc, gpu_state, append_grids_list);
     
     // Free device arrays
     gpuErrchk( cudaFree(d_state) );
@@ -540,7 +572,29 @@ static PyObject* method_run_committor_calc(PyObject* self, PyObject* args, PyObj
   free(grid_fate);
   if (grid_array_c) free(grid_array_c);
 
-  return PyFloat_FromDouble((double)result);
+  //return PyFloat_FromDouble((double)result);
+
+  // Convert result array to a list of Python tuples
+  // Second entry in the tuple will hold the uncertainty on the pB estimate
+  PyObject* pylist = PyList_New(grid_array_count);
+  if (!pylist) {
+    if (result) free(result);
+    return NULL;
+  }
+  for (int i = 0; i < grid_array_count; ++i) {
+    PyObject* tuple = PyTuple_New(2);
+    if (!tuple) {
+      Py_DECREF(pylist);
+      if (result) free(result);
+      return NULL;
+    }
+    PyTuple_SET_ITEM(tuple, 0, PyFloat_FromDouble((double)result[i]));
+    PyTuple_SET_ITEM(tuple, 1, PyFloat_FromDouble(0.0));
+    PyList_SET_ITEM(pylist, i, tuple);
+  }
+  if (result) free(result);
+  return pylist;
+
 
 }
 

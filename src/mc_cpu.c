@@ -99,7 +99,7 @@ void compute_magnetisation_cpu(int L, int *ising_grids, int grid_index, float *m
 
 }
 
-float mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_sampler_t samples, mc_function_t calc, GridOutputFunc outfunc){
+void mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_sampler_t samples, mc_function_t calc, GridOutputFunc outfunc){
 
     clock_t t1,t2;  // For measuring time taken
     int isweep;     // MC sweep loop counter
@@ -117,8 +117,15 @@ float mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_
     int itask = calc.itask;
     double dn_thr = calc.dn_thr;
     double up_thr = calc.up_thr;
+    int ninputs = calc.ninputs;
 
-    
+    // Number of grids per input grid
+    if (ngrids % ninputs != 0) {
+      fprintf(stderr,"Error: ngrids must be divisible by ninputs!\n");
+      exit(EXIT_FAILURE);
+    }
+    int sub_ngrids = ngrids/ninputs;
+
     // How many sweeps to run in each call to mc_sweeps_cpu
     int sweeps_per_call;
     sweeps_per_call = mag_output_int < grid_output_int ? mag_output_int : grid_output_int;
@@ -130,9 +137,23 @@ float mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_
       exit(EXIT_FAILURE);
     }
 
-    // result - either fraction of nucleated trajectories (itask=0) or comittor (itask=1)
-    float result;
-    
+    // result - either fraction of nucleated trajectories (itask=0) or comittor(s) (itask=1)
+    float *result;
+    int result_size;
+    if (itask==0) {
+      result_size = 1;
+    } else if (itask==1) {
+      result_size = ninputs;
+    } else {
+      fprintf(stderr,"Error: itask must be 0 or 1!\n");
+      exit(EXIT_FAILURE);
+    }
+    result=(float *)malloc(result_size*sizeof(float));
+    if (result==NULL) {
+      fprintf(stderr,"Error allocating result array!\n");
+      exit(EXIT_FAILURE);
+    }
+
     t1 = clock();  // Start timer
 
     isweep = 0;
@@ -157,7 +178,7 @@ float mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_
 #ifndef PYTHON
           fprintf(stdout, "%10d  %12.6f\n",isweep, (double)nnuc/(double)ngrids);
 #endif
-          result = (float)((double)nnuc/(double)ngrids);
+          result[0] = (float)((double)nnuc/(double)ngrids);
 	  if (nnuc==ngrids) break; // Stop if everyone has nucleated
 	  
         } else if ( itask == 1 ){
@@ -182,10 +203,9 @@ float mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_
           } //grids
 
           // Monitor progress
-          result = (double)nB/(double)(nA+nB);
 #ifndef PYTHON
-          fprintf(stdout, "\r Sweep : %10d, Reached m = %6.2f : %4d , Reached m = %6.2f : %4d , Unresolved : %4d, pB = %10.6f",
-		 isweep, dn_thr, nA, up_thr, nB, ngrids-nA-nB, result);
+          fprintf(stdout, "\r Sweep : %10d, Reached m = %6.2f : %4d , Reached m = %6.2f : %4d , Unresolved : %4d",
+		 isweep, dn_thr, nA, up_thr, nB, ngrids-nA-nB);
           fflush(stdout);
 #endif
 
@@ -212,6 +232,18 @@ float mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_
     // Release memory
     free(magnetisation);  
 
-    return result;
-  
+    if (itask==0) { // Just result the fraction of nucleated grids
+      *calc.result = result[0];
+    } else if (itask==1) { // Compute the committor(s)
+      int ii;
+      for (ii=0;ii<ninputs;ii++) {
+        int nB = 0;
+        for (int jj=0;jj<sub_ngrids;jj++) {
+          nB += grid_fate[ii*sub_ngrids+jj];
+        }
+        calc.result[ii] = (float)nB/(float)sub_ngrids; // Copy result to output array
+      }
+    }
+
+
 }

@@ -38,7 +38,7 @@ int *init_grids_from_file(int L, int ngrids) {
 }
 
 /* Create host grids and initialise all to match provided grid */
-int *init_grids_from_array(int L, int ngrids, int *array) {
+int *init_grids_from_array(int L, int ngrids, int ninputs, int *array) {
 
   // Host copy of Ising grid configurations
   int *ising_grids = (int *)malloc(L*L*ngrids*sizeof(int));
@@ -47,11 +47,22 @@ int *init_grids_from_array(int L, int ngrids, int *array) {
     exit(EXIT_FAILURE);
   }
 
-  int i, j;
-  
-  for (i=0;i<ngrids;i++) {
-    for (j=0;j<L*L;j++) {
-      ising_grids[i*L*L + j] = array[j];
+  // Sanity check
+  if (ngrids % ninputs != 0) {
+    fprintf(stderr,"Error: ngrids must be a multiple of ninputs!\n");
+    exit(EXIT_FAILURE);
+  }
+
+  int i, j, m;
+
+  // Loop over the provided input arrays
+  for (m=0;m<ninputs; m++) {
+    int* loc_array = &array[m*L*L];
+    int* loc_ising_grids = &ising_grids[m*(ngrids/ninputs)*L*L];
+    for (int i=0;i<ngrids/ninputs;i++) {
+      for (int j=0;j<L*L;j++) {
+        loc_ising_grids[i*L*L + j] = loc_array[j];
+      }
     }
   }
 
