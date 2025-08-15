@@ -15,11 +15,12 @@ typedef struct {
 } mc_sampler_t;
 
 typedef struct {
-  int itask;     // What to calculate?
-  double dn_thr; // Magnetisation below which lies the down macrostate
-  double up_thr; // Magnetisation above which lies the up macrostate
-  int ninputs;   // Number of input grids
-  float* result; // Pointer to result array
+  int itask;         // What to calculate?
+  double dn_thr;     // Magnetisation below which lies the down macrostate
+  double up_thr;     // Magnetisation above which lies the up macrostate
+  int ninputs;       // Number of input grids
+  int initial_spin;  // Spin of the parent phase we're nucleating from
+  float* result;     // Pointer to result array
 } mc_function_t;
 
 

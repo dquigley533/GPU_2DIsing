@@ -118,6 +118,7 @@ void mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_s
     double dn_thr = calc.dn_thr;
     double up_thr = calc.up_thr;
     int ninputs = calc.ninputs;
+    int initial_spin = calc.initial_spin;
 
     // Number of grids per input grid
     if (ngrids % ninputs != 0) {
@@ -175,7 +176,7 @@ void mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_s
       if (isweep%mag_output_int==0){
         for (igrid=0;igrid<ngrids;igrid++){
           compute_magnetisation_cpu(L, ising_grids, igrid, magnetisation);
-          //compute_largest_cluster_cpu(L, ising_grids, igrid, 1, lclus); // spin=1
+          //compute_largest_cluster_cpu(L, ising_grids, igrid, -1*initial_spin, lclus); // spin=1
           //printf("Magnetisation of grid %d at sweep %d = %8.4f\n",igrid, isweep, magnetisation[igrid]);
         }
         if ( itask == 0 ) { // Report how many samples have nucleated.

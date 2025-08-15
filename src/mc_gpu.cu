@@ -548,6 +548,7 @@ void mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, 
     double dn_thr = calc.dn_thr;
     double up_thr = calc.up_thr;
     int ninputs = calc.ninputs;
+    int initial_spin = calc.initial_spin;
 
     curandState* d_state = gpu_state.d_state;
     int threadsPerBlock = gpu_state.threadsPerBlock;
@@ -634,7 +635,7 @@ void mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, 
       // Can compute magnetisation while grids are copying
       if (isweep%mag_output_int==0){
         compute_magnetisation_gpu<<<blocksPerGrid, threadsPerBlock, 0, stream2>>>(L, ngrids, d_ising_grids, d_magnetisation);    
-        //compute_largest_cluster_gpu<<<blocksPerGrid, threadsPerBlock, 0, stream2>>>(L, ngrids, d_ising_grids, 1, d_work, d_lclus); // spin=1
+        //compute_largest_cluster_gpu<<<blocksPerGrid, threadsPerBlock, 0, stream2>>>(L, ngrids, d_ising_grids, -1*initial_spin, d_work, d_lclus); // spin=1
         gpuErrchk( cudaMemcpyAsync(magnetisation,d_magnetisation,ngrids*sizeof(float),cudaMemcpyDeviceToHost, stream2) );
       } 
 
