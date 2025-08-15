@@ -454,6 +454,78 @@ __global__ void compute_magnetisation_gpu(const int L, const int ngrids, int *d_
 
 }
 
+__global__ void compute_largest_cluster_gpu(const int L, const int ngrids, int *d_ising_grids, const int spin, int *d_work, int *lclus_size) {
+
+    /* Memory allocated here needs 2*ngrids*L*L*sizeof(int) as the minimum size 
+       set in a call to cudaDeviceSetLimit() */
+
+    int idx = threadIdx.x+blockIdx.x*blockDim.x;  
+
+    //int* visited = (int*)malloc(L * L * sizeof(int));
+    //for (int i=0;i<L*L;++i) {visited[i] = 0;}
+    int* visited = d_work + idx*2*L*L; // Use part of the allocated work space
+    for (int i=0;i<L*L;++i) {visited[i] = 0;}
+
+    int max_size = 0;
+
+    // Queue for BFS: stores indices
+    //int* queue = (int*)malloc(L * L * sizeof(int));
+    int* queue = d_work + L*L;
+
+    int front, back;
+
+    // Neighbor offsets: left, right, up, down
+    int dx[4] = {-1, 1, 0, 0};
+    int dy[4] = {0, 0, -1, 1};
+
+
+
+    if (idx < ngrids) {
+
+      int *grid = &d_ising_grids[idx*L*L]; // pointer to device global memory
+
+      for (int y = 0; y < L; ++y) {
+          for (int x = 0; x < L; ++x) {
+              int idx = y * L + x;
+              if (grid[idx] == spin && !visited[idx]) {
+                  visited[idx] = 1;
+                  front = back = 0;
+                  queue[back++] = idx;
+                  int size = 0;
+
+                  while (front < back) {
+                      int current = queue[front++];
+                      size++;
+
+                      int cx = current % L;
+                      int cy = current / L;
+
+                      for (int d = 0; d < 4; ++d) {
+                          int nx = (cx + dx[d] + L) % L;
+                          int ny = (cy + dy[d] + L) % L;
+                          int nidx = ny * L + nx;
+
+                          if (grid[nidx] == spin && !visited[nidx]) {
+                              visited[nidx] = 1;
+                              queue[back++] = nidx;
+                          }
+                      }
+                  }
+
+                  if (size > max_size) {
+                      max_size = size;
+                  }
+              }
+          }
+      }
+
+      lclus_size[idx] = max_size;
+
+    }
+    
+}
+
+
 
 void mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, mc_sampler_t samples, mc_function_t calc, gpu_run_t gpu_state, GridOutputFunc outfunc){
 
@@ -499,6 +571,18 @@ void mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, 
     // Device copy of magnetisation
     float *d_magnetisation;
     gpuErrchk( cudaMalloc(&d_magnetisation,ngrids*sizeof(float)) );
+
+    int *d_lclus;
+    gpuErrchk( cudaMalloc(&d_lclus,ngrids*sizeof(int)) );
+
+    // If we're using the largest cluster size calculation we need to allow for a large enough
+    // heap size on the GPU to allocate arrays needed for the BFS algorithm.
+    //cudaDeviceSetLimit(cudaLimitMallocHeapSize, 2*ngrids*L*L*sizeof(int));
+
+    // Allocate workspace for the cluster size calculation on the device
+    int *d_work;
+    gpuErrchk( cudaMalloc(&d_work,2*ngrids*L*L*sizeof(int)) );
+
 
     // Streams
     cudaStream_t stream1;
@@ -547,9 +631,10 @@ void mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, 
         gpuErrchk( cudaMemcpyAsync(ising_grids,d_ising_grids,L*L*ngrids*sizeof(int),cudaMemcpyDeviceToHost,stream1) );
       }
 
-      // Can compute manetisation while grids are copying
+      // Can compute magnetisation while grids are copying
       if (isweep%mag_output_int==0){
         compute_magnetisation_gpu<<<blocksPerGrid, threadsPerBlock, 0, stream2>>>(L, ngrids, d_ising_grids, d_magnetisation);    
+        //compute_largest_cluster_gpu<<<blocksPerGrid, threadsPerBlock, 0, stream2>>>(L, ngrids, d_ising_grids, 1, d_work, d_lclus); // spin=1
         gpuErrchk( cudaMemcpyAsync(magnetisation,d_magnetisation,ngrids*sizeof(float),cudaMemcpyDeviceToHost, stream2) );
       } 
 
@@ -586,12 +671,12 @@ void mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, 
       }
       
       // Writing of the grids can be happening on the host while the device runs the mc_sweep kernel
-      if (isweep%grid_output_int==0){
+      if (isweep%grid_output_int==0 || isweep==tot_nsweeps-1){
         outfunc(L, ngrids, ising_grids, isweep, magnetisation);  
       }
 
       // Write and report magnetisation - can also be happening while the device runs the mc_sweep kernel
-      if (isweep%mag_output_int==0){
+      if (isweep%mag_output_int==0 || isweep==tot_nsweeps-1){
         gpuErrchk( cudaStreamSynchronize(stream2) );  // Wait for copy to complete
         //for (igrid=0;igrid<ngrids;igrid++){
         //  printf("    %4d     %10d      %8.6f\n",igrid, isweep, magnetisation[igrid]);
@@ -678,6 +763,8 @@ void mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, 
     // Free magnetisation arrays
     free(magnetisation);
     gpuErrchk( cudaFree(d_magnetisation) );
+    gpuErrchk( cudaFree(d_lclus) );
+    gpuErrchk( cudaFree(d_work) );
 
     if (itask==0) { // Just result the fraction of nucleated grids
       *calc.result = result[0];

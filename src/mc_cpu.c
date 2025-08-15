@@ -137,6 +137,13 @@ void mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_s
       exit(EXIT_FAILURE);
     }
 
+    // Largest cluster size for each grid
+    int *lclus = (int *)malloc(ngrids*sizeof(int));
+    if (lclus==NULL){
+      fprintf(stderr,"Error allocating largest cluster size array!\n");
+      exit(EXIT_FAILURE);
+    }
+
     // result - either fraction of nucleated trajectories (itask=0) or comittor(s) (itask=1)
     float *result;
     int result_size;
@@ -148,11 +155,11 @@ void mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_s
       fprintf(stderr,"Error: itask must be 0 or 1!\n");
       exit(EXIT_FAILURE);
     }
-    result=(float *)malloc(result_size*sizeof(float));
+    /*result=(float *)malloc(result_size*sizeof(float));
     if (result==NULL) {
       fprintf(stderr,"Error allocating result array!\n");
       exit(EXIT_FAILURE);
-    }
+    }*/
 
     t1 = clock();  // Start timer
 
@@ -168,6 +175,7 @@ void mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_s
       if (isweep%mag_output_int==0){
         for (igrid=0;igrid<ngrids;igrid++){
           compute_magnetisation_cpu(L, ising_grids, igrid, magnetisation);
+          //compute_largest_cluster_cpu(L, ising_grids, igrid, 1, lclus); // spin=1
           //printf("Magnetisation of grid %d at sweep %d = %8.4f\n",igrid, isweep, magnetisation[igrid]);
         }
         if ( itask == 0 ) { // Report how many samples have nucleated.
@@ -231,6 +239,7 @@ void mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_s
 
     // Release memory
     free(magnetisation);  
+    free(lclus);
 
     if (itask==0) { // Just result the fraction of nucleated grids
       *calc.result = result[0];
@@ -246,4 +255,60 @@ void mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_s
     }
 
 
+}
+
+void compute_largest_cluster_cpu(int L, int* ising_grids, const int grid_index, int spin, int *lclus_size){
+
+    int* visited = (int*)calloc(L * L, sizeof(int));
+    int max_size = 0;
+
+    // Queue for BFS: stores indices
+    int* queue = (int*)malloc(L * L * sizeof(int));
+    int front, back;
+
+    // Neighbor offsets: left, right, up, down
+    int dx[4] = {-1, 1, 0, 0};
+    int dy[4] = {0, 0, -1, 1};
+
+    // Part of ising_grids array to work on
+    int *grid = &ising_grids[grid_index*L*L];
+
+    for (int y = 0; y < L; ++y) {
+        for (int x = 0; x < L; ++x) {
+            int idx = y * L + x;
+            if (grid[idx] == spin && !visited[idx]) {
+                visited[idx] = 1;
+                front = back = 0;
+                queue[back++] = idx;
+                int size = 0;
+
+                while (front < back) {
+                    int current = queue[front++];
+                    size++;
+
+                    int cx = current % L;
+                    int cy = current / L;
+
+                    for (int d = 0; d < 4; ++d) {
+                        int nx = (cx + dx[d] + L) % L;
+                        int ny = (cy + dy[d] + L) % L;
+                        int nidx = ny * L + nx;
+
+                        if (grid[nidx] == spin && !visited[nidx]) {
+                            visited[nidx] = 1;
+                            queue[back++] = nidx;
+                        }
+                    }
+                }
+
+                if (size > max_size) {
+                    max_size = size;
+                }
+            }
+        }
+    }
+
+    free(visited);
+    free(queue);
+    lclus_size[grid_index] = max_size;
 }

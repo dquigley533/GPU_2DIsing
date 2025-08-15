@@ -36,5 +36,8 @@ void mc_sweep_cpu(int L, int *ising_grids, int grid_index, double beta, double h
 // Compute magnetisation on the cpu
 void compute_magnetisation_cpu(int L, int *ising_grids, int grid_index, float *magnetisation);
 
+// Compute size of largest cluster with spin=spin for grid with index grid_index
+void compute_largest_cluster_cpu(int L, int* ising_grids, const int grid_index, int spin, int *lclus_size);
+
 // Main driver routine
 void mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_sampler_t samples, mc_function_t calc, GridOutputFunc func);

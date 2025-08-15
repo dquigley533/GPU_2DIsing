@@ -37,8 +37,11 @@ __global__ void mc_sweep_gpu_bitrep(const int L, curandState *state, const int n
 __global__ void mc_sweep_gpu_bitmap32(const int L, curandState *state, const int ngrids, int *d_ising_grids, int *d_neighbour_list, const float beta, const float h, int nsweeps);
 __global__ void mc_sweep_gpu_bitmap64(const int L, curandState *state, const int ngrids, int *d_ising_grids, int *d_neighbour_list, const float beta, const float h, int nsweeps);
 
-// Compute magnetisation on the GPU
+// Compute magnetisation on the GPU for all grids in parallel
 __global__ void compute_magnetisation_gpu(const int L, const int ngrids, int *d_ising_grids, float *d_magnetisation);
+
+// Compute largest cluster size of sites with spin=spin for all grids in parallel
+__global__ void compute_largest_cluster_gpu(const int L, const int ngrids, int *d_ising_grids, const int spin, int *d_work, int *lclus_size);
 
 // Main driver function on GPU
 void mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, mc_sampler_t samples, mc_function_t calc, gpu_run_t gpu_state, GridOutputFunc func);
