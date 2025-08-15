@@ -15,6 +15,7 @@
 extern "C" {
   #include "io.h"
   #include "grid.h"
+  #include "bootstrap.h"
 }
 
 #include "mc_gpu.h"
@@ -492,6 +493,16 @@ static PyObject* method_run_committor_calc(PyObject* self, PyObject* args, PyObj
     return NULL;
   }
 
+  double *errbar = (double *)malloc(grid_array_count * sizeof(double)); // error bar on committor estimates
+  if (errbar == NULL) {
+    PyErr_SetString(PyExc_MemoryError, "Could not allocate memory for error bar array");
+    free(ising_grids);
+    free(grid_fate);
+    if (grid_array_c) free(grid_array_c);
+    free(result);
+    return NULL;
+  }
+
 /*=================================
     Run simulations - CPU version
   =================================*/ 
@@ -563,6 +574,22 @@ static PyObject* method_run_committor_calc(PyObject* self, PyObject* args, PyObj
 
  }
 
+
+/* =================================================
+    Calculate error bar on committor estimates
+  ================================================== */
+  for (int i = 0; i < grid_array_count; ++i) {
+    errbar[i] = bootstrap_errbar(ngrids/grid_array_count, 100, grid_fate+(i * ngrids/grid_array_count));
+    if (errbar[i] < 0.0) {
+      PyErr_SetString(PyExc_RuntimeError, "Error calculating bootstrap error bar");
+      free(ising_grids);
+      free(grid_fate);
+      if (grid_array_c) free(grid_array_c);
+      free(result);
+      free(errbar);
+      return NULL;
+    }    
+  }
   //populate_grids_list(L, ngrids, ising_grids);
   
 /*=================================================
@@ -589,10 +616,12 @@ static PyObject* method_run_committor_calc(PyObject* self, PyObject* args, PyObj
       return NULL;
     }
     PyTuple_SET_ITEM(tuple, 0, PyFloat_FromDouble((double)result[i]));
-    PyTuple_SET_ITEM(tuple, 1, PyFloat_FromDouble(0.0));
+    PyTuple_SET_ITEM(tuple, 1, PyFloat_FromDouble(errbar[i]));
     PyList_SET_ITEM(pylist, i, tuple);
   }
   if (result) free(result);
+  if (errbar) free(errbar);
+  
   return pylist;
 
 

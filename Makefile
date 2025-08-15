@@ -6,12 +6,12 @@ prefix     = $(HOME)
 bindir     = $(prefix)/bin
 
 # Define objects in dependency order
-OBJECTS   = mt19937ar.o grid.o gpu_tools.o io.o mc_cpu.o mc_gpu.o
+OBJECTS   = mt19937ar.o grid.o gpu_tools.o io.o mc_cpu.o mc_gpu.o bootstrap.o
 
 CC    = gcc
 NVCC  = nvcc
 LD     = nvcc
-CFLAGS =  -O3 
+CFLAGS =  -O3 -g
 NVFLAGS = -O3 -gencode arch=compute_61,code=sm_61 --generate-line-info  -Wno-deprecated-gpu-targets #   Quadro P2000 in Telamon
 
 .PRECIOUS: %.o
