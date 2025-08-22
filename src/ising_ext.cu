@@ -175,6 +175,58 @@ int append_grids_list(int L, int ngrids, int* grid_data, int isweep, float* magn
   Py_DECREF(existing_list);
   Py_DECREF(grid_list);
 
+  // Convert C array magnetisation to Python list
+  PyObject* magnetisation_pylist = PyList_New(ngrids);
+  if (!magnetisation_pylist) {
+    return -1;
+  }
+  for (int i = 0; i < ngrids; ++i) {
+    PyObject* val = PyFloat_FromDouble((double)magnetisation[i]);
+    if (!val) {
+      Py_DECREF(magnetisation_pylist);
+      return -1;
+    }
+    PyList_SET_ITEM(magnetisation_pylist, i, val);
+  }
+  // Append to module-level magnetisation list
+  if (module) {
+    PyObject* magnetisation_list = PyObject_GetAttrString(module, "magnetisation");
+    if (magnetisation_list && PyList_Check(magnetisation_list)) {
+      PyList_Append(magnetisation_list, magnetisation_pylist);
+    }
+    Py_XDECREF(magnetisation_list);
+  }
+  Py_DECREF(magnetisation_pylist);
+
+  if (lclus_size) { // We don't always compute largest cluster size
+
+    // Convert C array lclus_size to Python list
+    PyObject* largest_cluster_pylist = PyList_New(ngrids);
+    if (!largest_cluster_pylist) {
+      return -1;
+    }
+  
+    for (int i = 0; i < ngrids; ++i) {
+      PyObject* val = PyFloat_FromDouble((double)lclus_size[i]);
+      if (!val) {
+        Py_DECREF(largest_cluster_pylist);
+        return -1;
+      }
+      PyList_SET_ITEM(largest_cluster_pylist, i, val);
+    }
+
+    // Append to module-level largest_cluster list
+    if (module) {
+      PyObject* largest_cluster_list = PyObject_GetAttrString(module, "largest_cluster");
+      if (largest_cluster_list && PyList_Check(largest_cluster_list)) {
+        PyList_Append(largest_cluster_list, largest_cluster_pylist);
+      }
+      Py_XDECREF(largest_cluster_list);
+    }
+    Py_DECREF(largest_cluster_pylist);
+
+  }
+
   ihist++; // Increment snapshot history counter
   
   return 0;
@@ -668,6 +720,7 @@ static struct PyModuleDef gaspmodule = {
 /* The init function for the module - doesn't do much other than call a function to create the module as specified in the above*/
 PyMODINIT_FUNC PyInit_gasp(void) { 
 
+
    // Initialize NumPy API
   import_array();
   
@@ -706,6 +759,7 @@ PyMODINIT_FUNC PyInit_gasp(void) {
     return NULL;
   }
 
+
   // Add gpu_nsms as a module-level integer attribute
   PyObject* py_gpu_nsms = PyLong_FromLong((long)gpu_nsms);
   if (PyModule_AddObject(module, "gpu_nsms", py_gpu_nsms) < 0) {
@@ -715,6 +769,32 @@ PyMODINIT_FUNC PyInit_gasp(void) {
     return NULL;
   }
   
+  // Add module-level lists for magnetisation and largest_cluster
+  PyObject* magnetisation_list = PyList_New(0);
+  if (!magnetisation_list) {
+    Py_DECREF(module);
+    return NULL;
+  }
+  if (PyModule_AddObject(module, "magnetisation", magnetisation_list) < 0) {
+    Py_DECREF(magnetisation_list);
+    Py_DECREF(module);
+    PyErr_SetString(PyExc_RuntimeError, "Could not add 'magnetisation' attribute to gasp module");
+    return NULL;
+  }
+
+  PyObject* largest_cluster_list = PyList_New(0);
+  if (!largest_cluster_list) {
+    Py_DECREF(module);
+    return NULL;
+  }
+  if (PyModule_AddObject(module, "largest_cluster", largest_cluster_list) < 0) {
+    Py_DECREF(largest_cluster_list);
+    Py_DECREF(module);
+    PyErr_SetString(PyExc_RuntimeError, "Could not add 'largest_cluster' attribute to gasp module");
+    return NULL;
+  }
+
+
 
 
   return module;
