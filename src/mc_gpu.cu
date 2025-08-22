@@ -454,23 +454,23 @@ __global__ void compute_magnetisation_gpu(const int L, const int ngrids, int *d_
 
 }
 
-__global__ void compute_largest_cluster_gpu(const int L, const int ngrids, int *d_ising_grids, const int spin, int *d_work, int *lclus_size) {
+__global__ void compute_largest_cluster_gpu(const int L, const int ngrids, int *d_ising_grids, const int spin, int *d_work, float *lclus_size) {
 
     /* Memory allocated here needs 2*ngrids*L*L*sizeof(int) as the minimum size 
        set in a call to cudaDeviceSetLimit() */
 
-    int idx = threadIdx.x+blockIdx.x*blockDim.x;  
+    int d_idx = threadIdx.x+blockIdx.x*blockDim.x;  
 
     //int* visited = (int*)malloc(L * L * sizeof(int));
     //for (int i=0;i<L*L;++i) {visited[i] = 0;}
-    int* visited = d_work + idx*2*L*L; // Use part of the allocated work space
+    int* visited = d_work + d_idx*2*L*L; // Use part of the allocated work space
     for (int i=0;i<L*L;++i) {visited[i] = 0;}
 
     int max_size = 0;
 
     // Queue for BFS: stores indices
     //int* queue = (int*)malloc(L * L * sizeof(int));
-    int* queue = d_work + L*L;
+    int* queue = d_work + d_idx*2*L*L + L*L;
 
     int front, back;
 
@@ -480,9 +480,9 @@ __global__ void compute_largest_cluster_gpu(const int L, const int ngrids, int *
 
 
 
-    if (idx < ngrids) {
+    if (d_idx < ngrids) {
 
-      int *grid = &d_ising_grids[idx*L*L]; // pointer to device global memory
+      int *grid = &d_ising_grids[d_idx*L*L]; // pointer to device global memory
 
       for (int y = 0; y < L; ++y) {
           for (int x = 0; x < L; ++x) {
@@ -519,7 +519,7 @@ __global__ void compute_largest_cluster_gpu(const int L, const int ngrids, int *
           }
       }
 
-      lclus_size[idx] = max_size;
+      lclus_size[d_idx] = (float)max_size;
 
     }
     
@@ -545,10 +545,12 @@ void mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, 
     int grid_output_int = samples.grid_output_int;
 
     int itask = calc.itask;
+    char *cv = calc.cv;
     double dn_thr = calc.dn_thr;
     double up_thr = calc.up_thr;
     int ninputs = calc.ninputs;
     int initial_spin = calc.initial_spin;
+
 
     curandState* d_state = gpu_state.d_state;
     int threadsPerBlock = gpu_state.threadsPerBlock;
@@ -562,6 +564,9 @@ void mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, 
     int sub_ngrids = ngrids/ninputs;
 
 
+    // Pointer to collective variable array
+    float *colvar = NULL;
+
     // Host copy of magnetisation
     float *magnetisation = (float *)malloc(ngrids*sizeof(float));
     if (magnetisation==NULL){
@@ -573,16 +578,33 @@ void mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, 
     float *d_magnetisation;
     gpuErrchk( cudaMalloc(&d_magnetisation,ngrids*sizeof(float)) );
 
-    int *d_lclus;
-    gpuErrchk( cudaMalloc(&d_lclus,ngrids*sizeof(int)) );
+    
+    // Only compute largest cluster if it's the CV of interest
+    float *d_lclus = NULL, *lclus_size = NULL;
+    int *d_work = NULL;
+    if (strcmp(cv, "largest_cluster") == 0) {
 
-    // If we're using the largest cluster size calculation we need to allow for a large enough
-    // heap size on the GPU to allocate arrays needed for the BFS algorithm.
-    //cudaDeviceSetLimit(cudaLimitMallocHeapSize, 2*ngrids*L*L*sizeof(int));
+      // Host copy of largest cluster size
+      lclus_size = (float *)malloc(ngrids*sizeof(float));
+      if (lclus_size==NULL){
+        fprintf(stderr,"Error allocating largest cluster size host array!\n");
+        exit(EXIT_FAILURE);
+      }
+      // Device copy of largest cluster size
+      gpuErrchk( cudaMalloc(&d_lclus,ngrids*sizeof(float)) );
 
-    // Allocate workspace for the cluster size calculation on the device
-    int *d_work;
-    gpuErrchk( cudaMalloc(&d_work,2*ngrids*L*L*sizeof(int)) );
+      // If we're using the largest cluster size calculation we need to allow for a large enough
+      // heap size on the GPU to allocate arrays needed for the BFS algorithm.
+      cudaDeviceSetLimit(cudaLimitMallocHeapSize, 2*ngrids*L*L*sizeof(int));
+
+      // Allocate workspace for the cluster size calculation on the device
+      gpuErrchk( cudaMalloc(&d_work,2*ngrids*L*L*sizeof(int)) );
+
+      colvar = lclus_size; // Use largest cluster size as collective variable
+
+    } else {
+      colvar = magnetisation; // Use the magnetisation as collective variable
+    }
 
 
     // Streams
@@ -624,19 +646,23 @@ void mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, 
     isweep = 0;
     while(isweep < tot_nsweeps){
 
-
-
       // Output grids to file
       if (isweep%grid_output_int==0){
         // Asynchronous - can happen while magnetisation is being computed in stream 2
         gpuErrchk( cudaMemcpyAsync(ising_grids,d_ising_grids,L*L*ngrids*sizeof(int),cudaMemcpyDeviceToHost,stream1) );
       }
 
-      // Can compute magnetisation while grids are copying
+      // Can compute collective variables which magnetisation while grids are copying
       if (isweep%mag_output_int==0){
+
         compute_magnetisation_gpu<<<blocksPerGrid, threadsPerBlock, 0, stream2>>>(L, ngrids, d_ising_grids, d_magnetisation);    
-        //compute_largest_cluster_gpu<<<blocksPerGrid, threadsPerBlock, 0, stream2>>>(L, ngrids, d_ising_grids, -1*initial_spin, d_work, d_lclus); // spin=1
         gpuErrchk( cudaMemcpyAsync(magnetisation,d_magnetisation,ngrids*sizeof(float),cudaMemcpyDeviceToHost, stream2) );
+
+        if (strcmp(cv, "largest_cluster") == 0) {
+          compute_largest_cluster_gpu<<<blocksPerGrid, threadsPerBlock, 0, stream2>>>(L, ngrids, d_ising_grids, -1*initial_spin, d_work, d_lclus); // spin=1
+          gpuErrchk( cudaMemcpyAsync(lclus_size,d_lclus,ngrids*sizeof(float),cudaMemcpyDeviceToHost, stream2) );
+        }
+
       } 
 
       // MC Sweep - GPU
@@ -673,10 +699,10 @@ void mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, 
       
       // Writing of the grids can be happening on the host while the device runs the mc_sweep kernel
       if (isweep%grid_output_int==0 || isweep==tot_nsweeps-1){
-        outfunc(L, ngrids, ising_grids, isweep, magnetisation);  
+        outfunc(L, ngrids, ising_grids, isweep, magnetisation, lclus_size);  
       }
 
-      // Write and report magnetisation - can also be happening while the device runs the mc_sweep kernel
+      // Write and report cv - can also be happening while the device runs the mc_sweep kernel
       if (isweep%mag_output_int==0 || isweep==tot_nsweeps-1){
         gpuErrchk( cudaStreamSynchronize(stream2) );  // Wait for copy to complete
         //for (igrid=0;igrid<ngrids;igrid++){
@@ -685,7 +711,7 @@ void mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, 
         if ( itask == 0 ) { // Report how many samples have nucleated.
           int nnuc = 0;
           for (igrid=0;igrid<ngrids;igrid++){
-            if ( magnetisation[igrid] > up_thr ) nnuc++;
+            if ( colvar[igrid] > up_thr ) nnuc++;
           }
           result[0] = (float)((double)nnuc/(double)ngrids);
 #ifndef PYTHON
@@ -693,7 +719,7 @@ void mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, 
           fflush(stdout);
 #endif 
 #ifdef PYTHON
-          PySys_WriteStdout("\r Sweep : %10d, Reached m = %6.2f : %4d , Unresolved : %4d",
+          PySys_WriteStdout("\r Sweep : %10d, Reached cv = %6.2f : %4d , Unresolved : %4d",
             isweep, nnuc, up_thr, ngrids-nnuc );
 #endif
           if (nnuc==ngrids) break; // Stop if everyone has nucleated
@@ -707,10 +733,10 @@ void mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, 
               } else if (grid_fate[igrid]==1 ) {
                 nB++;
               } else {
-                if ( magnetisation[igrid] > up_thr ){
+                if ( colvar[igrid] > up_thr ){
                   grid_fate[igrid] = 1;
                   nB++;
-                } else if (magnetisation[igrid] < dn_thr ){
+                } else if (colvar[igrid] < dn_thr ){
                   grid_fate[igrid] = 0;
                   nA++;
                 }
@@ -719,13 +745,15 @@ void mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, 
 
             // Monitor progress
 #ifndef PYTHON
-            printf("\r Sweep : %10d, Reached m = %6.2f : %4d , Reached m = %6.2f : %4d , Unresolved : %4d",
+            printf("\r Sweep : %10d, Reached cv = %6.2f : %4d , Reached cv = %6.2f : %4d , Unresolved : %4d",
             isweep, dn_thr, nA, up_thr, nB, ngrids-nA-nB);
+            //printf("\r colvar : %10d",colvar[0]);
             fflush(stdout);
 #endif
 #ifdef PYTHON
-            PySys_WriteStdout("\r Sweep : %10d, Reached m = %6.2f : %4d , Reached m = %6.2f : %4d , Unresolved : %4d",
+            PySys_WriteStdout("\r Sweep : %10d, Reached cv = %6.2f : %4d , Reached cv = %6.2f : %4d , Unresolved : %4d",
             isweep, dn_thr, nA, up_thr, nB, ngrids-nA-nB );
+            //PySys_WriteStdout("\r colvar : %10f",colvar[0]);
 #endif
             if (nA + nB == ngrids) break; // all fates resolved
         
@@ -763,9 +791,11 @@ void mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, 
 
     // Free magnetisation arrays
     free(magnetisation);
+    if (lclus_size) free(lclus_size);
     gpuErrchk( cudaFree(d_magnetisation) );
-    gpuErrchk( cudaFree(d_lclus) );
-    gpuErrchk( cudaFree(d_work) );
+    
+    if (d_lclus) gpuErrchk( cudaFree(d_lclus) );
+    if (d_work) gpuErrchk( cudaFree(d_work) );
 
     if (itask==0) { // Just result the fraction of nucleated grids
       *calc.result = result[0];

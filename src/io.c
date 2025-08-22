@@ -64,7 +64,7 @@ void read_input_grid(int L, int ngrids, int *ising_grids){
 
 }
 
-int write_ising_grids(int L, int ngrids, int *ising_grids, int isweep, float *magnetisation){
+int write_ising_grids(int L, int ngrids, int *ising_grids, int isweep, float *magnetisation, float *lclus_size){
 
     // Set filename
     char filename[15];

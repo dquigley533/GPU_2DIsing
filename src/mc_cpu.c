@@ -3,6 +3,10 @@
 #include "mc_cpu.h"
 #include "io.h"
 
+#ifdef PYTHON
+#include <Python.h>
+#endif
+
 double Pacc[20];         // Cache of acceptance probabilities
 
 
@@ -115,6 +119,7 @@ void mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_s
     int grid_output_int = samples.grid_output_int;
 
     int itask = calc.itask;
+    char *cv = calc.cv;
     double dn_thr = calc.dn_thr;
     double up_thr = calc.up_thr;
     int ninputs = calc.ninputs;
@@ -127,23 +132,33 @@ void mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_s
     }
     int sub_ngrids = ngrids/ninputs;
 
+    float *colvar; // Collective variable
+
     // How many sweeps to run in each call to mc_sweeps_cpu
     int sweeps_per_call;
     sweeps_per_call = mag_output_int < grid_output_int ? mag_output_int : grid_output_int;
     
-    // Magnetisation of each grid
+    // Magnetisation of each grid - cheap to compute so always allocated
     float *magnetisation = (float *)malloc(ngrids*sizeof(float));
     if (magnetisation==NULL){
       fprintf(stderr,"Error allocating magnetisation array!\n");
       exit(EXIT_FAILURE);
     }
 
-    // Largest cluster size for each grid
-    int *lclus = (int *)malloc(ngrids*sizeof(int));
-    if (lclus==NULL){
-      fprintf(stderr,"Error allocating largest cluster size array!\n");
-      exit(EXIT_FAILURE);
+    // Largest cluster size for each grid only if we need it
+    float *lclus = NULL;
+    if (strcmp(cv, "largest_cluster") == 0) {
+      lclus = (float *)malloc(ngrids*sizeof(float));
+      if (lclus==NULL){
+        fprintf(stderr,"Error allocating largest cluster size array!\n");
+        exit(EXIT_FAILURE);
+      }
+      colvar = lclus; // Use largest cluster size as collective variable
+    } else {
+      colvar = magnetisation; // Use the magnetisation as collective variable
     }
+
+
 
     // result - either fraction of nucleated trajectories (itask=0) or comittor(s) (itask=1)
     float *result;
@@ -167,25 +182,27 @@ void mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_s
     isweep = 0;
     while (isweep < tot_nsweeps){
 
-      // Output grids to file
-      if (isweep%grid_output_int==0){
-        outfunc(L, ngrids, ising_grids, isweep, magnetisation);  
-      }
-
-      // Report magnetisations
+      // Report collective variables
       if (isweep%mag_output_int==0){
         for (igrid=0;igrid<ngrids;igrid++){
+
           compute_magnetisation_cpu(L, ising_grids, igrid, magnetisation);
-          //compute_largest_cluster_cpu(L, ising_grids, igrid, -1*initial_spin, lclus); // spin=1
-          //printf("Magnetisation of grid %d at sweep %d = %8.4f\n",igrid, isweep, magnetisation[igrid]);
+          if ( strcmp(cv, "largest_cluster") == 0 ) {
+            compute_largest_cluster_cpu(L, ising_grids, igrid, -1*initial_spin, lclus);
+          }
+
         }
         if ( itask == 0 ) { // Report how many samples have nucleated.
           int nnuc = 0;
           for (igrid=0;igrid<ngrids;igrid++){
-            if ( magnetisation[igrid] > up_thr ) nnuc++;
+            if ( colvar[igrid] > up_thr ) nnuc++;
           }
 #ifndef PYTHON
           fprintf(stdout, "%10d  %12.6f\n",isweep, (double)nnuc/(double)ngrids);
+#endif
+#ifdef PYTHON
+          PySys_WriteStdout("\r Sweep : %10d, Reached cv = %6.2f : %4d , Unresolved : %4d",
+            isweep, nnuc, up_thr, ngrids-nnuc );
 #endif
           result[0] = (float)((double)nnuc/(double)ngrids);
 	  if (nnuc==ngrids) break; // Stop if everyone has nucleated
@@ -201,10 +218,10 @@ void mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_s
             } else if (grid_fate[igrid]==1 ) {
               nB++;
             } else {
-              if ( magnetisation[igrid] > up_thr ){
+              if ( colvar[igrid] > up_thr ){
                 grid_fate[igrid] = 1;
                 nB++;
-              } else if (magnetisation[igrid] < dn_thr ){
+              } else if (colvar[igrid] < dn_thr ){
                 grid_fate[igrid] = 0;
                 nA++;
               }
@@ -213,14 +230,26 @@ void mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_s
 
           // Monitor progress
 #ifndef PYTHON
-          fprintf(stdout, "\r Sweep : %10d, Reached m = %6.2f : %4d , Reached m = %6.2f : %4d , Unresolved : %4d",
+          fprintf(stdout, "\r Sweep : %10d, Reached cv = %6.2f : %4d , Reached cv = %6.2f : %4d , Unresolved : %4d",
 		 isweep, dn_thr, nA, up_thr, nB, ngrids-nA-nB);
           fflush(stdout);
 #endif
+#ifdef PYTHON
+            PySys_WriteStdout("\r Sweep : %10d, Reached cv = %6.2f : %4d , Reached cv = %6.2f : %4d , Unresolved : %4d",
+            isweep, dn_thr, nA, up_thr, nB, ngrids-nA-nB );
+            //PySys_WriteStdout("\r colvar : %10f",colvar[0]);
+#endif
+
 
           if (nA + nB == ngrids) break; // all fates resolved
         } // task
       } 
+
+      // Output grids to file
+      if (isweep%grid_output_int==0){
+        outfunc(L, ngrids, ising_grids, isweep, magnetisation, lclus);  
+      }
+
 
       // MC Sweep - CPU
       for (igrid=0;igrid<ngrids;igrid++) {
@@ -237,10 +266,13 @@ void mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_s
 
     if (itask==1) { printf("pB estimate : %10.6f\n",result); }; 
 #endif
+#ifdef PYTHON
+    PySys_WriteStdout("\n");
+#endif
 
     // Release memory
     free(magnetisation);  
-    free(lclus);
+    if (lclus) free(lclus);
 
     if (itask==0) { // Just result the fraction of nucleated grids
       *calc.result = result[0];
@@ -258,7 +290,7 @@ void mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_s
 
 }
 
-void compute_largest_cluster_cpu(int L, int* ising_grids, const int grid_index, int spin, int *lclus_size){
+void compute_largest_cluster_cpu(int L, int* ising_grids, const int grid_index, int spin, float *lclus_size){
 
     int* visited = (int*)calloc(L * L, sizeof(int));
     int max_size = 0;
@@ -311,5 +343,5 @@ void compute_largest_cluster_cpu(int L, int* ising_grids, const int grid_index, 
 
     free(visited);
     free(queue);
-    lclus_size[grid_index] = max_size;
+    lclus_size[grid_index] = (float)max_size;
 }

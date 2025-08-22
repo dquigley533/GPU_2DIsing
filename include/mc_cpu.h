@@ -16,17 +16,18 @@ typedef struct {
 
 typedef struct {
   int itask;         // What to calculate?
-  double dn_thr;     // Magnetisation below which lies the down macrostate
-  double up_thr;     // Magnetisation above which lies the up macrostate
+  double dn_thr;     // CV value below which lies the down macrostate
+  double up_thr;     // CV value above which lies the up macrostate
   int ninputs;       // Number of input grids
   int initial_spin;  // Spin of the parent phase we're nucleating from
-  float* result;     // Pointer to result array
+  char* cv;          // Collective variable on which thresholds are defined
+  float* result;     // Pointer to result array 
 } mc_function_t;
 
 
 
-// Function typedef obeyed by functions which output grids
-typedef int (*GridOutputFunc)(int L, int ngrids, int* grid_data, int isweep, float* magnetisation);
+// Function typedef obeyed by functions which output/store grids
+typedef int (*GridOutputFunc)(int L, int ngrids, int* grid_data, int isweep, float* magnetisation, float *lclus_size);
 
 // pre-compute acceptance probabilities for spin flips
 void preComputeProbs_cpu(double beta, double h);
@@ -38,7 +39,7 @@ void mc_sweep_cpu(int L, int *ising_grids, int grid_index, double beta, double h
 void compute_magnetisation_cpu(int L, int *ising_grids, int grid_index, float *magnetisation);
 
 // Compute size of largest cluster with spin=spin for grid with index grid_index
-void compute_largest_cluster_cpu(int L, int* ising_grids, const int grid_index, int spin, int *lclus_size);
+void compute_largest_cluster_cpu(int L, int* ising_grids, const int grid_index, int spin, float *lclus_size);
 
 // Main driver routine
 void mc_driver_cpu(mc_grids_t grids, double beta, double h, int* grid_fate, mc_sampler_t samples, mc_function_t calc, GridOutputFunc func);

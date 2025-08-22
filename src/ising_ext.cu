@@ -112,7 +112,7 @@ PyObject* populate_grids_list(int L, int ngrids, int* grid_data) {
 
 
 
-int append_grids_list(int L, int ngrids, int* grid_data, int isweep, float* magnetisation) {
+int append_grids_list(int L, int ngrids, int* grid_data, int isweep, float* magnetisation, float *lclus_size) {
 
   npy_intp dims[2] = {L, L};
 
@@ -211,17 +211,33 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
   int threadsPerBlock = 32;      // Threads per block
   int gpu_method = 0;            // GPU method to use - see mc_gpu.cu
 
+  char *cv="magnetisation";     // Collective variable to use in determining fate
+
   /* list of keywords */
   static char* kwlist[] = {"L", "ngrid", "tot_nsweeps", "beta", "h",
-    "initial_spin", "up_threshold", "dn_threshold", "mag_output_int",
+    "initial_spin", "cv", "up_threshold", "dn_threshold", "mag_output_int",
     "grid_output_int", "threadsPerBlock", "gpu_method", NULL};
 
 
-  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "iiidd|iddiiii", kwlist,
-				   &L, &ngrids, &tot_nsweeps, &beta, &h, &initial_spin,
-				   &up_threshold, &dn_threshold, &mag_output_int,
-				   &grid_output_int, &threadsPerBlock, &gpu_method)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "iiidd|isddiiii", kwlist,
+                     &L, &ngrids, &tot_nsweeps, &beta, &h, &initial_spin, &cv,
+                     &up_threshold, &dn_threshold, &mag_output_int,
+                     &grid_output_int, &threadsPerBlock, &gpu_method)) {
+      return NULL;
+    }
+
+
+  // Validate cv argument
+  if (strcmp(cv, "magnetisation") != 0 && strcmp(cv, "largest_cluster") != 0) {
+    PyErr_SetString(PyExc_ValueError, "cv must be either 'magnetisation' or 'largest_cluster'");
     return NULL;
+  }
+
+  if (strcmp(cv, "largest_cluster") == 1) {
+    // Warn if magnitude of up_threshold and dn_threshold are less than 2
+    if (fabs(up_threshold) < 2.0 || fabs(dn_threshold) < 2.0) {
+      PyErr_SetString(PyExc_UserWarning, "For cv='largest_cluster', up_threshold and dn_threshold should have magnitudes >= 2");
+    }
   }
 
   /*=================================
@@ -276,7 +292,7 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
 
     mc_grids_t grids; grids.L = L; grids.ngrids = ngrids; grids.ising_grids = ising_grids;
     mc_sampler_t samples; samples.tot_nsweeps = tot_nsweeps; samples.mag_output_int = mag_output_int; samples.grid_output_int = grid_output_int;
-    mc_function_t calc; calc.itask = 0; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold; calc.ninputs = 1; calc.result = &result;
+    mc_function_t calc; calc.itask = 0; calc.cv = cv; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold; calc.ninputs = 1; calc.result = &result;
 
     /*=================================
       Write output header 
@@ -319,7 +335,7 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
     mc_gpu_grids_t grids; grids.L = L; grids.ngrids = ngrids; grids.ising_grids = ising_grids;
     grids.d_ising_grids = d_ising_grids; grids.d_neighbour_list = d_neighbour_list;
     mc_sampler_t samples; samples.tot_nsweeps = tot_nsweeps; samples.mag_output_int = mag_output_int; samples.grid_output_int = grid_output_int;
-    mc_function_t calc; calc.itask = 0; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold; calc.ninputs = 1; calc.result = &result;
+    mc_function_t calc; calc.initial_spin = initial_spin; calc.cv = cv; calc.itask = 0; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold; calc.ninputs = 1; calc.result = &result;
     gpu_run_t gpu_state; gpu_state.d_state = d_state;  gpu_state.threadsPerBlock = threadsPerBlock; gpu_state.gpu_method = gpu_method;
 
     /*=================================
@@ -359,7 +375,7 @@ static PyObject* method_run_committor_calc(PyObject* self, PyObject* args, PyObj
   int tot_nsweeps = 100;
   double beta = 0.54;
   double h = 0.07;
- int initial_spin = -1;         // Majority spin in parent phase   
+  int initial_spin = -1;         // Majority spin in parent phase   
   double up_threshold = -0.90*(double)initial_spin;  // Threshold mag at which which assumed reversed
   double dn_threshold =  0.93*(double)initial_spin;  // Threshold mag at which assumed returned
   int mag_output_int = 100;
@@ -368,15 +384,22 @@ static PyObject* method_run_committor_calc(PyObject* self, PyObject* args, PyObj
   int gpu_method = 0;
   const char* grid_input = "gridstates.bin";
   PyObject* grid_array_obj = NULL;
+  char* cv = "magnetisation";
 
   static char* kwlist[] = {"L", "ngrid", "tot_nsweeps", "beta", "h",
-    "initial_spin", "up_threshold", "dn_threshold", "mag_output_int",
+    "initial_spin", "cv", "up_threshold", "dn_threshold", "mag_output_int",
     "grid_output_int", "threadsPerBlock", "gpu_method", "grid_input", "grid_array", NULL};
 
-  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "iiidd|iddiiiisO", kwlist,
-       &L, &ngrids, &tot_nsweeps, &beta, &h, &initial_spin,
+  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "iiidd|isddiiiisO", kwlist,
+       &L, &ngrids, &tot_nsweeps, &beta, &h, &initial_spin, &cv,
        &up_threshold, &dn_threshold, &mag_output_int,
        &grid_output_int, &threadsPerBlock, &gpu_method, &grid_input, &grid_array_obj)) {
+    return NULL;
+  }
+
+  // Validate cv argument
+  if (strcmp(cv, "magnetisation") != 0 && strcmp(cv, "largest_cluster") != 0) {
+    PyErr_SetString(PyExc_ValueError, "cv must be either 'magnetisation' or 'largest_cluster'");
     return NULL;
   }
 
@@ -522,7 +545,7 @@ static PyObject* method_run_committor_calc(PyObject* self, PyObject* args, PyObj
 
     mc_grids_t grids; grids.L = L; grids.ngrids = ngrids; grids.ising_grids = ising_grids;
     mc_sampler_t samples; samples.tot_nsweeps = tot_nsweeps; samples.mag_output_int = mag_output_int; samples.grid_output_int = grid_output_int;
-    mc_function_t calc; calc.itask = 1; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold; calc.ninputs = grid_array_count; calc.result=result;
+    mc_function_t calc; calc.itask = 1; calc.initial_spin = initial_spin; calc.cv = cv; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold; calc.ninputs = grid_array_count; calc.result=result;
 
     
     // Perform the MC simulations
@@ -555,12 +578,10 @@ static PyObject* method_run_committor_calc(PyObject* self, PyObject* args, PyObj
     // Precompute acceptance probabilities for flip moves
     preComputeProbs_gpu(beta, h);
 
-
-
     mc_gpu_grids_t grids; grids.L = L; grids.ngrids = ngrids; grids.ising_grids = ising_grids;
     grids.d_ising_grids = d_ising_grids; grids.d_neighbour_list = d_neighbour_list;
     mc_sampler_t samples; samples.tot_nsweeps = tot_nsweeps; samples.mag_output_int = mag_output_int; samples.grid_output_int = grid_output_int;
-    mc_function_t calc; calc.itask = 1; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold; calc.ninputs = grid_array_count; calc.result=result;
+    mc_function_t calc; calc.itask = 1; calc.cv = cv; calc.initial_spin = initial_spin; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold; calc.ninputs = grid_array_count; calc.result=result;
     gpu_run_t gpu_state; gpu_state.d_state = d_state;  gpu_state.threadsPerBlock = threadsPerBlock; gpu_state.gpu_method = gpu_method; 
 
 
@@ -579,7 +600,7 @@ static PyObject* method_run_committor_calc(PyObject* self, PyObject* args, PyObj
     Calculate error bar on committor estimates
   ================================================== */
   for (int i = 0; i < grid_array_count; ++i) {
-    errbar[i] = bootstrap_errbar(ngrids/grid_array_count, 100, grid_fate+(i * ngrids/grid_array_count));
+    errbar[i] = bootstrap_errbar(ngrids/grid_array_count, ngrids/grid_array_count, grid_fate+(i * ngrids/grid_array_count));
     if (errbar[i] < 0.0) {
       PyErr_SetString(PyExc_RuntimeError, "Error calculating bootstrap error bar");
       free(ising_grids);
@@ -684,6 +705,16 @@ PyMODINIT_FUNC PyInit_gasp(void) {
     PyErr_SetString(PyExc_RuntimeError, "Could not add 'grids' attribute to gasp module");
     return NULL;
   }
+
+  // Add gpu_nsms as a module-level integer attribute
+  PyObject* py_gpu_nsms = PyLong_FromLong((long)gpu_nsms);
+  if (PyModule_AddObject(module, "gpu_nsms", py_gpu_nsms) < 0) {
+    Py_DECREF(py_gpu_nsms);
+    Py_DECREF(module);
+    PyErr_SetString(PyExc_RuntimeError, "Could not add 'gpu_nsms' attribute to gasp module");
+    return NULL;
+  }
+  
 
 
   return module;
