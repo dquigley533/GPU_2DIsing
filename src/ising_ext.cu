@@ -416,8 +416,7 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
   =================================================*/ 
   free(ising_grids);
 
-  return PyFloat_FromDouble((double)result);
-
+  Py_RETURN_NONE;
 }
 
 static PyObject* method_run_committor_calc(PyObject* self, PyObject* args, PyObject* kwargs){
