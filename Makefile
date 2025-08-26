@@ -1,8 +1,8 @@
 #-*- mode: makefile; mode: font-lock; vc-back-end: Git -*-
 SHELL = /bin/sh
 
-# Where you want the binary
-prefix     = $(HOME)
+# Where you want the binary (set to current working directory)
+prefix     = $(CURDIR)
 bindir     = $(prefix)/bin
 
 # Object directory
@@ -46,7 +46,7 @@ $(objdir)/%.obj: src/%.c include/%.h | $(objdir)
 $(objdir)/%.obj: src/%.cu include/%.h | $(objdir)
 	$(NVCC) $(NVFLAGS) -c -o $@ $< -Iinclude/ $(HDF5_CFLAGS)
 
-GPU_2DIsing : $(OBJECTS) src/ising.cu | $(objdir)
+GPU_2DIsing : $(OBJECTS) src/ising.cu | $(objdir) $(bindir)
 	$(LD) -o $(bindir)/GPU_2DIsing $(OBJECTS) src/ising.cu $(NVFLAGS) -Iinclude/ $(HDF5_LIBS)
 
 clean :
