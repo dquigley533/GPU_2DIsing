@@ -28,5 +28,6 @@ py.extension_module(
   'gasp',     
   ['ising_ext.cu', gasp_src],
   include_directories: ['../include/'],
+  dependencies: [numpy_dep],
   install: true,
 )
