@@ -15,6 +15,14 @@ CC    = gcc
 NVCC  = nvcc
 LD    = nvcc
 CFLAGS =  -O3 -g
+
+# HDF5 flags (use pkg-config if available)
+HDF5_CFLAGS := $(shell pkg-config --cflags hdf5 2>/dev/null)
+HDF5_LIBS   := $(shell pkg-config --libs hdf5 2>/dev/null)
+
+# Append HDF5 cflags to C compile flags so headers are found
+CFLAGS += $(HDF5_CFLAGS)
+
 NVFLAGS = -O3 -gencode arch=compute_61,code=sm_61 --generate-line-info  -Wno-deprecated-gpu-targets # Quadro P2000 in Telamon
 
 .PRECIOUS: $(objdir)/%.obj
@@ -26,16 +34,20 @@ all : GPU_2DIsing
 $(objdir):
 	mkdir -p $(objdir)
 
+# Create bin directory if it does not exist
+$(bindir):
+	mkdir -p $(bindir)
+
 # Compile C files to obj
 $(objdir)/%.obj: src/%.c include/%.h | $(objdir)
-	$(CC) $(CFLAGS) -c -o $@ $< -Iinclude/
+	$(CC) $(CFLAGS) -c -o $@ $< -Iinclude/ $(HDF5_CFLAGS)
 
 # Compile CUDA files to obj
 $(objdir)/%.obj: src/%.cu include/%.h | $(objdir)
-	$(NVCC) $(NVFLAGS) -c -o $@ $< -Iinclude/
+	$(NVCC) $(NVFLAGS) -c -o $@ $< -Iinclude/ $(HDF5_CFLAGS)
 
 GPU_2DIsing : $(OBJECTS) src/ising.cu | $(objdir)
-	$(LD) -o $(bindir)/GPU_2DIsing $(OBJECTS) src/ising.cu $(NVFLAGS) -Iinclude/
+	$(LD) -o $(bindir)/GPU_2DIsing $(OBJECTS) src/ising.cu $(NVFLAGS) -Iinclude/ $(HDF5_LIBS)
 
 clean :
 	rm -rf $(objdir)
