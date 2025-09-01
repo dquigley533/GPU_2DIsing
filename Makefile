@@ -1,38 +1,56 @@
 #-*- mode: makefile; mode: font-lock; vc-back-end: Git -*-
 SHELL = /bin/sh
 
-# Where you want the binary
-prefix     = $(HOME)
+# Where you want the binary (set to current working directory)
+prefix     = $(CURDIR)
 bindir     = $(prefix)/bin
 
-# Define objects in dependency order
-OBJECTS   = mt19937ar.o grid.o gpu_tools.o io.o mc_cpu.o mc_gpu.o bootstrap.o
+# Object directory
+objdir = obj
+
+# Define objects with .obj extension in dependency order
+OBJECTS = $(objdir)/mt19937ar.obj $(objdir)/grid.obj $(objdir)/gpu_tools.obj $(objdir)/io.obj $(objdir)/mc_cpu.obj $(objdir)/mc_gpu.obj $(objdir)/bootstrap.obj
 
 CC    = gcc
 NVCC  = nvcc
-LD     = nvcc
+LD    = nvcc
 CFLAGS =  -O3 -g
-NVFLAGS = -O3 -gencode arch=compute_61,code=sm_61 --generate-line-info  -Wno-deprecated-gpu-targets #   Quadro P2000 in Telamon
 
-.PRECIOUS: %.o
-.PHONY:  clean
+# HDF5 flags (use pkg-config if available)
+HDF5_CFLAGS := $(shell pkg-config --cflags hdf5 2>/dev/null)
+HDF5_LIBS   := $(shell pkg-config --libs hdf5 2>/dev/null)
+
+# Append HDF5 cflags to C compile flags so headers are found
+CFLAGS += $(HDF5_CFLAGS)
+
+NVFLAGS = -O3 -gencode arch=compute_61,code=sm_61 --generate-line-info  -Wno-deprecated-gpu-targets # Quadro P2000 in Telamon
+
+.PRECIOUS: $(objdir)/%.obj
+.PHONY:  clean all
 
 all : GPU_2DIsing
 
-%: %.o
-%.o: src/%.c include/%.h
-	$(CC) $(CFLAGS) -c -o $@ $< -Iinclude/
+# Create object directory if it does not exist
+$(objdir):
+	mkdir -p $(objdir)
 
-%.o: src/%.cu include/%.h
-	$(NVCC) $(NVFLAGS) -c -o $@ $< -Iinclude/
+# Create bin directory if it does not exist
+$(bindir):
+	mkdir -p $(bindir)
 
+# Compile C files to obj
+$(objdir)/%.obj: src/%.c include/%.h | $(objdir)
+	$(CC) $(CFLAGS) -c -o $@ $< -Iinclude/ $(HDF5_CFLAGS)
 
-GPU_2DIsing :  $(OBJECTS) src/ising.cu
+# Compile CUDA files to obj
+$(objdir)/%.obj: src/%.cu include/%.h | $(objdir)
+	$(NVCC) $(NVFLAGS) -c -o $@ $< -Iinclude/ $(HDF5_CFLAGS)
 
-	$(LD) -o $(bindir)/GPU_2DIsing $(OBJECTS) src/ising.cu $(NVFLAGS) -Iinclude/
+GPU_2DIsing : $(OBJECTS) src/ising.cu | $(objdir) $(bindir)
+	$(LD) -o $(bindir)/GPU_2DIsing $(OBJECTS) src/ising.cu $(NVFLAGS) -Iinclude/ $(HDF5_LIBS)
 
-clean : 
-
-	rm -f *.mod *.d *.il *.o work.*
+clean :
+	rm -rf $(objdir)
 	rm -f $(bindir)/GPU_2DIsing
+	rm -f *.mod *.d *.il work.*
 

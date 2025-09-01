@@ -5,6 +5,9 @@ python = py_mod.find_installation()
 # Also need NumPy headers
 numpy_dep = dependency('numpy', required: true, fallback: ['numpy', 'numpy_dep'])
 
+# HDF5 dependency
+hdf5_dep = dependency('hdf5', required: true)
+
 gasp_src = ['gpu_tools.cu',
             'io.c',
             'mc_cpu.c',
@@ -28,5 +31,6 @@ py.extension_module(
   'gasp',     
   ['ising_ext.cu', gasp_src],
   include_directories: ['../include/'],
+  dependencies: [numpy_dep, hdf5_dep],
   install: true,
 )
