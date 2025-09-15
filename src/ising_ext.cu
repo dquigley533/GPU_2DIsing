@@ -11,6 +11,7 @@
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
 #include <numpy/arrayobject.h>
 #include <Python.h>
+#include <structmember.h>
 
 extern "C" {
   #include "io.h"
@@ -38,8 +39,8 @@ typedef struct {
     PyObject_HEAD
     int isweep;             // MC sweep at which the grid was captured
     int igrid;              // Which grid in the ensemble is this
-    double magnetisation;   // Sum of spins
-    double lclus_size;      // Size of largest cluster of spins opposite to initial spin
+    float magnetisation;   // Sum of spins
+    float lclus_size;      // Size of largest cluster of spins opposite to initial spin
     PyObject *grid;         // Numpy array that holds the grid of spins
 } GridSnapObject;
 
@@ -48,8 +49,8 @@ typedef struct {
 static PyMemberDef GridSnapObject_members[] = {
     {"isweep", T_INT, offsetof(GridSnapObject, isweep), 0, "MC sweep at which the grid was captured"},
     {"igrid", T_INT, offsetof(GridSnapObject, igrid), 0, "Which grid in the ensemble is this"},
-    {"magnetisation", T_DOUBLE, offsetof(GridSnapObject, magnetisation), 0, "Magnetisation - i.e. sum of spins"},
-    {"lclus_size", T_DOUBLE, offsetof(GridSnapObject, lclus_size), 0, "Size of largest cluser of spins opposite to initial spin"},
+    {"magnetisation", T_FLOAT, offsetof(GridSnapObject, magnetisation), 0, "Magnetisation - i.e. sum of spins"},
+    {"lclus_size", T_FLOAT, offsetof(GridSnapObject, lclus_size), 0, "Size of largest cluser of spins opposite to initial spin"},
     //{"grid", T_OBJECT, offsetof(GridSnapObject, grid), 0, "Numpy array that holds the grid of spins"},
     {NULL}  /* Sentinel */
 };
@@ -76,18 +77,6 @@ static PyGetSetDef GridSnapObject_getset[] = {
     {NULL}  /* Sentinel */
 };
 
-/* Define the Types that GridSnapObjects are an instance of */
-PyTypeObject GridSnapObjectType = {
-    PyObject_HEAD_INIT(NULL)
-    .tp_name = "gasp.GridSnapObject",
-    .tp_basicsize = sizeof(GridSnapObject),
-    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_dealloc = (destructor)GridSnapObject_dealloc,
-    .tp_init = (initproc)GridSnapObject_init,
-    .tp_new = PyType_GenericNew,
-    .tp_members = GridSnapObject_members,
-    .tp_getset = GridSnapObject_getset,
-};  
 
 /* Constructor for the GridSnapObject type */
 static int GridSnapObject_init(GridSnapObject *self, PyObject *args, PyObject *kwds) {
@@ -120,7 +109,7 @@ static int GridSnapObject_init(GridSnapObject *self, PyObject *args, PyObject *k
 
     // Assign the NumPy array and manage its reference count
     Py_INCREF(in_numpy_array); // Increment the reference count for the new object
-    self->numpy_array = in_numpy_array;
+    self->grid = in_numpy_array;
 
     return 0; // Success
 }
@@ -134,6 +123,18 @@ static void GridSnapObject_dealloc(GridSnapObject *self) {
     Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
+/* Define the Types that GridSnapObjects are an instance of */
+PyTypeObject GridSnapObjectType = {
+    PyObject_HEAD_INIT(NULL)
+    .tp_name = "gasp.GridSnapObject",
+    .tp_basicsize = sizeof(GridSnapObject),
+    .tp_dealloc = (destructor)GridSnapObject_dealloc,
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
+    .tp_members = GridSnapObject_members,
+    .tp_getset = GridSnapObject_getset,
+    .tp_init = (initproc)GridSnapObject_init,
+    .tp_new = PyType_GenericNew,
+  };  
 
 
 static PyObject* reset_grids_list(PyObject* self, PyObject* args) {
@@ -844,7 +845,7 @@ PyMODINIT_FUNC PyInit_gasp(void) {
   }
 
   /* Add the custom type to the module */
-  Py_INCREF(&MyCustomObjectType);
+  Py_INCREF(&GridSnapObjectType);
   if (PyModule_AddObject(module, "GridSnapObject", (PyObject *) &GridSnapObjectType) < 0) {
       Py_DECREF(&GridSnapObjectType);
       Py_DECREF(module);
