@@ -112,7 +112,7 @@ PyObject* populate_grids_list(int L, int ngrids, int* grid_data) {
 
 
 
-int append_grids_list(int L, int ngrids, int* grid_data, int isweep, float* magnetisation, float *lclus_size) {
+int append_grids_list(int L, int ngrids, int* grid_data, int isweep, float* magnetisation, float *lclus_size, char *cv,double dn_thr, double up_thr) {
 
   npy_intp dims[2] = {L, L};
 
