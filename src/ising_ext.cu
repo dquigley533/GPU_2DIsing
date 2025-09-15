@@ -39,8 +39,9 @@ typedef struct {
     PyObject_HEAD
     int isweep;             // MC sweep at which the grid was captured
     int igrid;              // Which grid in the ensemble is this
-    float magnetisation;   // Sum of spins
-    float lclus_size;      // Size of largest cluster of spins opposite to initial spin
+    float magnetisation;    // Sum of spins
+    float lclus_size;       // Size of largest cluster of spins opposite to initial spin
+    float committor;        // Committor value
     PyObject *grid;         // Numpy array that holds the grid of spins
 } GridSnapObject;
 
@@ -51,6 +52,7 @@ static PyMemberDef GridSnapObject_members[] = {
     {"igrid", T_INT, offsetof(GridSnapObject, igrid), 0, "Which grid in the ensemble is this"},
     {"magnetisation", T_FLOAT, offsetof(GridSnapObject, magnetisation), 0, "Magnetisation - i.e. sum of spins"},
     {"lclus_size", T_FLOAT, offsetof(GridSnapObject, lclus_size), 0, "Size of largest cluser of spins opposite to initial spin"},
+    {"committor", T_FLOAT, offsetof(GridSnapObject, committor), 0, "Committor value if available. -1 if not."},
     //{"grid", T_OBJECT, offsetof(GridSnapObject, grid), 0, "Numpy array that holds the grid of spins"},
     {NULL}  /* Sentinel */
 };
@@ -104,8 +106,9 @@ static int GridSnapObject_init(GridSnapObject *self, PyObject *args, PyObject *k
     // Set the properties of the C struct
     self->isweep = in_isweep;
     self->igrid = in_igrid;
-    self->magnetisation = 0.0; // Default value
-    self->lclus_size = 0.0; // Default value
+    self->magnetisation = 0.0; // Default value (will always be available)
+    self->lclus_size = -1.0;   // Default value (-1 if not available)
+    self->committor = -1.0;    // Default value (-1 if not available)
 
     // Assign the NumPy array and manage its reference count
     Py_INCREF(in_numpy_array); // Increment the reference count for the new object
