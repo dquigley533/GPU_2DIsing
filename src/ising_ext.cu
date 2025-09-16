@@ -435,7 +435,15 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
   // Initialise as 100% spin down for all grids
   ising_grids = init_grids_uniform(L, ngrids, initial_spin);
   grid_fate = NULL ; // not used
-  float result; // result of calculation
+
+  float *result = (float *)malloc((tot_nsweeps/mag_output_int) * sizeof(float)); // fraction nucleated at each mag_output_int
+  if (result == NULL) {
+    PyErr_SetString(PyExc_MemoryError, "Could not allocate memory for result array");
+    free(ising_grids);
+    if (grid_fate) free(grid_fate);
+    return NULL;
+  }
+
 
 /*=================================
     Run simulations - CPU version
@@ -454,7 +462,7 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
 
     mc_grids_t grids; grids.L = L; grids.ngrids = ngrids; grids.ising_grids = ising_grids;
     mc_sampler_t samples; samples.tot_nsweeps = tot_nsweeps; samples.mag_output_int = mag_output_int; samples.grid_output_int = grid_output_int;
-    mc_function_t calc; calc.itask = 0; calc.cv = cv; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold; calc.ninputs = 1; calc.result = &result;
+    mc_function_t calc; calc.itask = 0; calc.cv = cv; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold; calc.ninputs = 1; calc.result = result;
 
     /*=================================
       Write output header 
@@ -497,7 +505,7 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
     mc_gpu_grids_t grids; grids.L = L; grids.ngrids = ngrids; grids.ising_grids = ising_grids;
     grids.d_ising_grids = d_ising_grids; grids.d_neighbour_list = d_neighbour_list;
     mc_sampler_t samples; samples.tot_nsweeps = tot_nsweeps; samples.mag_output_int = mag_output_int; samples.grid_output_int = grid_output_int;
-    mc_function_t calc; calc.initial_spin = initial_spin; calc.cv = cv; calc.itask = 0; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold; calc.ninputs = 1; calc.result = &result;
+    mc_function_t calc; calc.initial_spin = initial_spin; calc.cv = cv; calc.itask = 0; calc.dn_thr = dn_threshold; calc.up_thr = up_threshold; calc.ninputs = 1; calc.result = result;
     gpu_run_t gpu_state; gpu_state.d_state = d_state;  gpu_state.threadsPerBlock = threadsPerBlock; gpu_state.gpu_method = gpu_method;
 
     /*=================================
@@ -524,10 +532,25 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
 /*=================================================
     Tidy up memory used in both GPU and CPU paths
   =================================================*/ 
-  free(ising_grids);
+  if (ising_grids) free(ising_grids);
 
-  Py_RETURN_NONE;
+  // Return a NumPy array holding the contents of the C array 'result'
+  npy_intp dims[1] = {tot_nsweeps/mag_output_int};
+  PyObject* result_array = PyArray_SimpleNew(1, dims, NPY_FLOAT);
+  if (!result_array) {
+    if (result) free(result);
+    return NULL;
+  }
+  float* result_data = (float*)PyArray_DATA((PyArrayObject*)result_array);
+  for (int i = 0; i < dims[0]; ++i) {
+    result_data[i] = result[i];
+  }
+  if (result) free(result);
+  return result_array;
+
+
 }
+
 
 static PyObject* method_run_committor_calc(PyObject* self, PyObject* args, PyObject* kwargs){
 
