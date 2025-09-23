@@ -80,6 +80,8 @@ static PyGetSetDef GridSnapObject_getset[] = {
 };
 
 
+
+
 /* Constructor for the GridSnapObject type */
 static int GridSnapObject_init(GridSnapObject *self, PyObject *args, PyObject *kwds) {
     long int in_isweep, in_igrid;
@@ -127,18 +129,48 @@ static void GridSnapObject_dealloc(GridSnapObject *self) {
     Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
+// Forward declaration
+static PyObject* GridSnapObject_deepcopy(PyObject* self, PyObject* memo);
+
+
+// Add __deepcopy__ to GridSnapObjectType
+static PyMethodDef GridSnapObject_methods[] = {
+  {"__deepcopy__", (PyCFunction)GridSnapObject_deepcopy, METH_VARARGS, "Deep copy a GridSnapObject."},
+  {NULL, NULL, 0, NULL}
+};
+
 /* Define the Types that GridSnapObjects are an instance of */
 PyTypeObject GridSnapObjectType = {
     PyObject_HEAD_INIT(NULL)
-    .tp_name = "gasp.GridSnapObject",
-    .tp_basicsize = sizeof(GridSnapObject),
-    .tp_dealloc = (destructor)GridSnapObject_dealloc,
-    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_members = GridSnapObject_members,
-    .tp_getset = GridSnapObject_getset,
-    .tp_init = (initproc)GridSnapObject_init,
-    .tp_new = PyType_GenericNew,
-  };  
+  .tp_name = "gasp.GridSnapObject",
+  .tp_basicsize = sizeof(GridSnapObject),
+  .tp_dealloc = (destructor)GridSnapObject_dealloc,
+  .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
+  .tp_methods = GridSnapObject_methods,
+  .tp_members = GridSnapObject_members,
+  .tp_getset = GridSnapObject_getset,
+  .tp_init = (initproc)GridSnapObject_init,
+  .tp_new = PyType_GenericNew,
+};
+
+
+// __deepcopy__ implementation for GridSnapObject
+static PyObject* GridSnapObject_deepcopy(PyObject* self, PyObject* memo) {
+  GridSnapObject* orig = (GridSnapObject*)self;
+  PyObject* grid_copy = PyObject_CallMethod(orig->grid, "copy", NULL);
+  if (!grid_copy) return NULL;
+  PyObject* args = Py_BuildValue("iiO", orig->isweep, orig->igrid, grid_copy);
+  PyObject* new_obj = PyObject_CallObject((PyObject*)&GridSnapObjectType, args);
+  Py_DECREF(args);
+  Py_DECREF(grid_copy);
+  if (!new_obj) return NULL;
+  // Copy attributes
+  PyObject_SetAttrString(new_obj, "magnetisation", PyFloat_FromDouble((double)orig->magnetisation));
+  PyObject_SetAttrString(new_obj, "lclus_size", PyFloat_FromDouble((double)orig->lclus_size));
+  PyObject_SetAttrString(new_obj, "committor", PyFloat_FromDouble((double)orig->committor));
+  return new_obj;
+}
+
 
 
 static PyObject* reset_grids_list(PyObject* self, PyObject* args) {
