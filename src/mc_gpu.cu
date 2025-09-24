@@ -813,13 +813,19 @@ void mc_driver_gpu(mc_gpu_grids_t grids, double beta, double h, int* grid_fate, 
       int ii;
       for (ii=0;ii<ninputs;ii++) {
         int nB = 0;
+        int nF = 0;
         for (int jj=0;jj<sub_ngrids;jj++) {
-          nB += grid_fate[ii*sub_ngrids+jj];
+          if (grid_fate[ii*sub_ngrids+jj] > -1) {
+            nB += grid_fate[ii*sub_ngrids+jj];
+          }
+          else {
+            nF += 1;
+          }
         }
-        calc.result[ii] = (float)nB/(float)sub_ngrids; // Copy result to output array
+        calc.result[ii] = (float)nB/(float)(sub_ngrids-nF); // Copy result to output array
       }
     }
-
+      
     if (result) free(result);
 
 }
