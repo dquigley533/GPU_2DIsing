@@ -33,6 +33,7 @@ int gpu_nsms;  // Number of multiprocessors on the GPU
    generated to pass back to Python. 8 bit integers to save RAM */
 int8_t* grid_history = NULL;
 int ihist = 0;                 // Current snapshot number
+int maxhist = NULL;            // Maximum number of snapshot to allocate space for
 
 /* Struct which represents an instance of a grid snapshot object */
 typedef struct {
@@ -175,7 +176,7 @@ static PyObject* GridSnapObject_deepcopy(PyObject* self, PyObject* memo) {
 
 static PyObject* reset_grids_list(PyObject* self, PyObject* args) {
     
-  PyObject *module, *new_list;
+  PyObject *module, *new_list, *new_magnetisation_list, *new_largest_cluster_list;
 
   // Import the module
   module = PyImport_ImportModule("gasp");
@@ -199,9 +200,43 @@ static PyObject* reset_grids_list(PyObject* self, PyObject* args) {
     PyErr_SetString(PyExc_RuntimeError, "Could not add 'grids' attribute to module");
     return NULL;
   }
+  //Py_DECREF(new_list);
 
+  // Replace the module level magnetisation list with a new list
+  new_magnetisation_list = PyList_New(0);
+  if (!new_magnetisation_list) {
     Py_DECREF(module);
-    Py_RETURN_NONE;
+    PyErr_SetString(PyExc_RuntimeError, "Could not create new list for magnetisation");
+    return NULL;
+  }
+
+  if (PyModule_AddObject(module, "magnetisation", new_magnetisation_list) < 0) {
+    Py_DECREF(new_magnetisation_list);
+    Py_DECREF(module);
+    PyErr_SetString(PyExc_RuntimeError, "Could not add 'magnetisation' attribute to module");
+    return NULL;
+  }
+  //Py_DECREF(new_magnetisation_list);
+
+  // Replace the module level largest_cluster list with a new list
+  new_largest_cluster_list = PyList_New(0);
+  if (!new_largest_cluster_list) {
+    Py_DECREF(module);
+    PyErr_SetString(PyExc_RuntimeError, "Could not create new list for largest_cluster");
+    return NULL;
+  }
+
+  if (PyModule_AddObject(module, "largest_cluster", new_largest_cluster_list) < 0) {
+    Py_DECREF(new_largest_cluster_list);
+    Py_DECREF(module);
+    PyErr_SetString(PyExc_RuntimeError, "Could not add 'largest_cluster' attribute to module");
+    return NULL;
+  }
+  //Py_DECREF(new_largest_cluster_list);
+
+  // Clean up
+  //Py_DECREF(module);
+  Py_RETURN_NONE;
 }
 
 
@@ -257,13 +292,15 @@ PyObject* populate_grids_list(int L, int ngrids, int* grid_data) {
 int append_grids_list(int L, int ngrids, int* grid_data, int isweep, float* magnetisation, float *lclus_size, char *cv,double dn_thr, double up_thr, char *filename) {
 
   // Update module level lists of magnetisation and largest cluster (if computed)
-  float *cv_val;
+  float *cv_val = NULL;
   if (strcmp(cv, "magnetisation") == 0) {
     cv_val = magnetisation;
-  } else if (strcmp(cv, "lclus_size") == 0) {
+  } else if (strcmp(cv, "largest_cluster") == 0) {
     cv_val = lclus_size;
-  } else {
-    cv_val = NULL;
+  } 
+  if (!cv_val) {
+    PyErr_SetString(PyExc_ValueError, "Invalid collective variable specified");
+    return -1;
   }
 
   // Get a handle to the gasp module
@@ -335,8 +372,15 @@ int append_grids_list(int L, int ngrids, int* grid_data, int isweep, float* magn
   // Always call the hdf5 writer
   int iret = write_ising_grids_hdf5(L, ngrids, grid_data, isweep, magnetisation, lclus_size, cv, dn_thr, up_thr, filename);
 
+  if (iret != 0) {
+    PyErr_SetString(PyExc_RuntimeError, "Error writing HDF5 file");
+    return -1;
+  }
+
+
+
   // If we're maintaining a history of grids in RAM then proceed, otherwise we're done
-  if (!grid_history) {
+  if (!grid_history || ihist >= maxhist) {
     //Py_DECREF(module);
     return iret;
   }
@@ -346,48 +390,71 @@ int append_grids_list(int L, int ngrids, int* grid_data, int isweep, float* magn
 
   // Create a Python list to hold GridSnapObject instances corresponding to the current sweep
   PyObject* grid_snap_list = PyList_New(0);
-  if (!grid_snap_list) return -1;
-
-  int snapsize = ngrids*L*L;
-  for (int i = 0; i < ngrids; ++i) {
-    // Copy current grid data into history array. Not using memcpy as there's a cast involved.
-    int isite;
-    for (isite=0;isite<L*L;++isite){
-      grid_history[snapsize*ihist+i*L*L+isite] = (int8_t)grid_data[i*L*L+isite];
-    }
-    // Create a NumPy array from the data. This just wraps the grid_history_array
-    PyObject* array = PyArray_SimpleNewFromData(2, dims, NPY_INT8, (int8_t*)(grid_history + ihist*snapsize + i * L * L));
-    if (!array) {
-      PyErr_SetString(PyExc_RuntimeError, "Could not create NumPy array from grid\n");
-      Py_DECREF(grid_snap_list);
-      return -1;
-    }
-    Py_INCREF(Py_None);
-    PyArray_SetBaseObject((PyArrayObject*)array, Py_None);
-    // Create GridSnapObject instance
-    PyObject* args = Py_BuildValue("iiO", isweep, i, array);
-    PyObject* snap_obj = PyObject_CallObject((PyObject*)&GridSnapObjectType, args);
-    Py_DECREF(args);
-    Py_DECREF(array);
-    if (!snap_obj) {
-      PyErr_SetString(PyExc_RuntimeError, "Could not create GridSnapObject instance for current grid\n");
-      Py_DECREF(grid_snap_list);
-      return -1;
-    }
-    // Set additional attributes
-    PyObject_SetAttrString(snap_obj, "magnetisation", PyFloat_FromDouble((double)magnetisation[i]));
-    if (lclus_size) {
-      PyObject_SetAttrString(snap_obj, "lclus_size", PyFloat_FromDouble((double)lclus_size[i]));
-    }
-    PyObject_SetAttrString(snap_obj, "committor", PyFloat_FromDouble(-1.0)); // Default value
-    //PyObject_SetAttrString(snap_obj, "isweep", PyLong_FromLong(isweep));
-    //PyObject_SetAttrString(snap_obj, "grid_index", PyLong_FromLong(i));
-
-    // Append if the selected CV lies between up_thr and down_thr
-    //if (cv_val[i] > dn_thr && cv_val[i] < up_thr) {
-      PyList_Append(grid_snap_list, snap_obj);
-    //}
+  if (!grid_snap_list){
+    PyErr_SetString(PyExc_RuntimeError, "Could not create Python list for current grid snapshots");
+    return -1;
   }
+
+  int snapsize = L*L;
+  for (int i = 0; i < ngrids; ++i) {
+
+    // Only do this if within thresholds
+    // Append if the selected CV lies between up_thr and down_thr
+    //printf("CV[%d] = %f\n", i, cv_val[i]);
+    if ( ((double)cv_val[i] > dn_thr) && ((double)cv_val[i] < up_thr) ) {
+
+
+      // Copy current grid data into history array. Not using memcpy as there's a cast involved.
+      int isite;
+      for (isite=0;isite<L*L;++isite){
+        grid_history[snapsize*ihist + isite] = (int8_t)grid_data[i*L*L+isite];
+      } 
+    
+      // Create a NumPy array from the data. This just wraps the part of grid_history
+      // we just populated.
+      PyObject* array = PyArray_SimpleNewFromData(2, dims, NPY_INT8, (int8_t*)(grid_history + ihist*snapsize));
+      if (!array) {
+        PyErr_SetString(PyExc_RuntimeError, "Could not create NumPy array from grid\n");
+        Py_DECREF(grid_snap_list);
+        return -1;
+      }
+
+      Py_INCREF(Py_None);
+      PyArray_SetBaseObject((PyArrayObject*)array, Py_None);
+    
+      // Create GridSnapObject instance
+      PyObject* args = Py_BuildValue("iiO", isweep, i, array);
+      PyObject* snap_obj = PyObject_CallObject((PyObject*)&GridSnapObjectType, args);
+      Py_DECREF(args);
+      Py_DECREF(array);  // We're done with the array we passed into the GridSnapObject constructor
+      if (!snap_obj) {
+        PyErr_SetString(PyExc_RuntimeError, "Could not create GridSnapObject instance for current grid\n");
+        Py_DECREF(grid_snap_list);
+        return -1;
+      }
+
+      // Set additional attributes of GridSnapObject instance
+      PyObject_SetAttrString(snap_obj, "magnetisation", PyFloat_FromDouble((double)magnetisation[i]));
+      if (lclus_size) {
+        PyObject_SetAttrString(snap_obj, "lclus_size", PyFloat_FromDouble((double)lclus_size[i]));
+      }
+      PyObject_SetAttrString(snap_obj, "committor", PyFloat_FromDouble(-1.0)); // Default value
+      //PyObject_SetAttrString(snap_obj, "isweep", PyLong_FromLong(isweep));
+      //PyObject_SetAttrString(snap_obj, "grid_index", PyLong_FromLong(i));
+
+      // Append current GridSnapObject instance to the list for the current sweep
+      PyList_Append(grid_snap_list, snap_obj);
+      ihist++;
+
+      if (ihist == maxhist) {
+        PySys_WriteStderr("\nWARNING: Maximum history reached, not storing more snapshots to grids object!\n\n");
+        ihist++;
+        break; // Don't try and store any more grids from this iteration
+      } 
+    
+    } // if between thresholds
+
+  } //grids
 
 
   PyObject* existing_list = PyObject_GetAttrString(module, "grids");
@@ -397,6 +464,7 @@ int append_grids_list(int L, int ngrids, int* grid_data, int isweep, float* magn
     PyErr_SetString(PyExc_RuntimeError, "Attribute 'grids' not found or not a list");
     return -1;
   }
+
   // Append the new list of GridSnapObject instances only if grid_snap_list is not empty
   if (PyList_Size(grid_snap_list) > 0 ) {
     if (PyList_Append(existing_list, grid_snap_list) < 0) {
@@ -405,12 +473,9 @@ int append_grids_list(int L, int ngrids, int* grid_data, int isweep, float* magn
       return -1;
     }
   }
+
   Py_DECREF(existing_list);
   Py_DECREF(grid_snap_list);
-
-  //Py_DECREF(module);
-
-  ihist++; // Increment snapshot history counter
   
   return 0;
   
@@ -443,6 +508,7 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
   int mag_output_int = 100;      // Sweeps between output of magnetisation
   int grid_output_int = 1000;    // Sweeps between output of grids
   int keep_grids = 1;            // Keep history of grids in RAM
+  int max_keep_grids = 0;        // Maximum number of grids to allocate space for
 
   int threadsPerBlock = 32;      // Threads per block
   int gpu_method = 0;            // GPU method to use - see mc_gpu.cu
@@ -452,13 +518,13 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
   /* list of keywords */
   static char* kwlist[] = {"L", "ngrid", "tot_nsweeps", "beta", "h",
     "initial_spin", "cv", "up_threshold", "dn_threshold", "mag_output_int",
-    "grid_output_int", "keep_grids", "threadsPerBlock", "gpu_method", NULL};
+    "grid_output_int", "keep_grids", "max_keep_grids", "threadsPerBlock", "gpu_method", NULL};
 
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "iiidd|isddiipii", kwlist,
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "iiidd|isddiipiii", kwlist,
                      &L, &ngrids, &tot_nsweeps, &beta, &h, &initial_spin, &cv,
                      &up_threshold, &dn_threshold, &mag_output_int,
-                     &grid_output_int, &keep_grids, &threadsPerBlock, &gpu_method)) {
+                     &grid_output_int, &keep_grids, &max_keep_grids, &threadsPerBlock, &gpu_method)) {
       return NULL;
     }
 
@@ -476,6 +542,12 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
     }
   }
 
+  // Check that max_keep_grids in a positive integer
+  if (max_keep_grids < 0) {
+    PyErr_SetString(PyExc_ValueError, "max_keep_grids must be a positive integer");
+    return NULL;
+  }
+
   /*=================================
    Delete old output 
   ================================*/
@@ -487,8 +559,15 @@ static PyObject* method_run_nucleation_swarm(PyObject* self, PyObject* args, PyO
   /* Allocate the C array this list of grids wraps */
   if (grid_history != NULL) { free(grid_history); }  
   int nsnaps = tot_nsweeps/grid_output_int + 1;
+
+  if (max_keep_grids){
+    maxhist = max_keep_grids;
+  } else {
+    maxhist = nsnaps*ngrids;
+  }
+
   if (keep_grids) {
-    grid_history = (int8_t *)malloc(nsnaps*ngrids*L*L*sizeof(int8_t));
+    grid_history = (int8_t *)malloc(maxhist*L*L*sizeof(int8_t));
     if (grid_history == NULL){
       PyErr_SetString(PyExc_MemoryError, "Error allocating RAM to hold grid history!");
       return NULL;   
@@ -645,6 +724,7 @@ static PyObject* method_run_committor_calc(PyObject* self, PyObject* args, PyObj
   int mag_output_int = 100;
   int grid_output_int = 1000;
   int keep_grids = 1;
+  int max_keep_grids = 0;
   int threadsPerBlock = 32;
   int gpu_method = 0;
   int nsms = gpu_nsms;
@@ -656,12 +736,12 @@ static PyObject* method_run_committor_calc(PyObject* self, PyObject* args, PyObj
 
   static char* kwlist[] = {"L", "ngrid", "tot_nsweeps", "beta", "h",
     "initial_spin", "cv", "up_threshold", "dn_threshold", "mag_output_int",
-    "grid_output_int", "keep_grids", "threadsPerBlock", "gpu_method", "grid_input", "grid_array", "nsms", NULL};
+    "grid_output_int", "keep_grids", "max_keep_grids", "threadsPerBlock", "gpu_method", "grid_input", "grid_array", "nsms", NULL};
 
-  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "iiidd|isddiipiisOi", kwlist,
+  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "iiidd|isddiipiiisOi", kwlist,
        &L, &ngrids, &tot_nsweeps, &beta, &h, &initial_spin, &cv,
        &up_threshold, &dn_threshold, &mag_output_int,
-       &grid_output_int, &keep_grids, &threadsPerBlock, &gpu_method, &grid_input, &grid_array_obj, &nsms)) {
+       &grid_output_int, &keep_grids, &max_keep_grids, &threadsPerBlock, &gpu_method, &grid_input, &grid_array_obj, &nsms)) {
     return NULL;
   }
 
@@ -676,6 +756,12 @@ static PyObject* method_run_committor_calc(PyObject* self, PyObject* args, PyObj
   // Validate cv argument
   if (strcmp(cv, "magnetisation") != 0 && strcmp(cv, "largest_cluster") != 0) {
     PyErr_SetString(PyExc_ValueError, "cv must be either 'magnetisation' or 'largest_cluster'");
+    return NULL;
+  }
+
+  // Check that max_keep_grids is an positive integer
+  if (max_keep_grids < 0) {
+    PyErr_SetString(PyExc_ValueError, "max_keep_grids must be a non-negative integer");
     return NULL;
   }
 
@@ -752,8 +838,15 @@ static PyObject* method_run_committor_calc(PyObject* self, PyObject* args, PyObj
   /* Allocate the C array this list of grids wraps */
   if (grid_history != NULL) { free(grid_history); }  
   int nsnaps = tot_nsweeps/grid_output_int + 1;
-  if (keep_grids){
-    grid_history = (int8_t *)malloc(nsnaps*ngrids*L*L*sizeof(int8_t));
+
+  if (max_keep_grids){
+    maxhist = max_keep_grids;
+  } else {
+    maxhist = nsnaps*ngrids;
+  }
+
+  if (keep_grids) {
+    grid_history = (int8_t *)malloc(maxhist*L*L*sizeof(int8_t));
     if (grid_history == NULL){
       PyErr_SetString(PyExc_MemoryError, "Error allocating RAM to hold grid history!");
       return NULL;   
