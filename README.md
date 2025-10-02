@@ -19,10 +19,6 @@ These days we prefer "GPU Accelerated Spin Physics".
     * [Usage](#usage-1)
 - [Acknowledgements](#acknowledgements)
 
-
-
-
-
 ## Command line version
 
 ### Dependencies
@@ -120,7 +116,7 @@ This should also install all necessary dependencies (except those already needed
 
 ## Usage
 
-See the exampel `.ipynb` notebooks in the `Jupyter` directory.
+See the example `.ipynb` notebooks in the `Jupyter` directory.
 
 
 ## Acknowledgements
